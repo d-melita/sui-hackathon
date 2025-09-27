@@ -10,7 +10,7 @@ use seal::bf_hmac_encryption::{
     parse_encrypted_object
 };
 use sui::bls12381::g1_from_bytes;
-use sui::table::{Self, Table};
+//use sui::table::{Self, Table};
 
 const EInvalidVote: u64 = 1;
 const EVoteNotDone: u64 = 2;

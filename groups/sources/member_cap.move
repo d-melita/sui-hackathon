@@ -4,6 +4,7 @@ use groups::admin_cap::AdminCap;
 
 const ENotAnAdmin: u64 = 0;
 const EVectorsLengthMismatch: u64 = 1;
+const ENotInGroup: u64 = 2;
 
 /// Group Member cap
 public struct MemberCap has key {
@@ -54,6 +55,10 @@ public fun transfer_member_caps(
         i = i + 1;
     };
     member_caps.destroy_empty();
+}
+
+public(package) fun assert_cap(self: &MemberCap, group_id: ID) {
+    assert!(self.group_id == group_id, ENotInGroup);
 }
 
 // Getters

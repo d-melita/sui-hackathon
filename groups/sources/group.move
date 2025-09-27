@@ -8,12 +8,12 @@ use groups::admin_cap;
 //use groups::signal;
 //use sui::address;
 use sui::event;
-use sui::table;
+//use sui::table;
 use groups::admin_cap::AdminCap;
 use groups::member_cap::MemberCap;
 
-const EDuplicate: u64 = 1;
-const ENotInGroup: u64 = 2;
+//const EDuplicate: u64 = 1;
+//const ENotInGroup: u64 = 2;
 const ENotCreator: u64 = 3;
 const ENotOpenGroup: u64 = 4;
 
@@ -25,8 +25,7 @@ public struct Group has key {
     version: u64,
     owner: address, // can be shared/DAO later
     is_gated: bool,
-    members: table::Table<address, bool>,
-    is_open: bool,
+    // TODO CHECK IF MAKES SENSE TO KEEP TRACK OF MEMBERS
 }
 
 public struct GroupCreated has copy, drop, store { group_id: ID, owner: address }
@@ -36,24 +35,19 @@ public struct GroupCreated has copy, drop, store { group_id: ID, owner: address 
 ///       -> share()
 public fun create_group(
     gated: bool,
-    open: bool,
     ctx: &mut TxContext,
 ): Group {
     let group_uid = object::new(ctx);
     let admin_cap = admin_cap::mint(group_uid.to_inner(), ctx);
-    let member_cap = member_cap::mint(group_uid.to_inner(), ctx);
     let group = Group {
         id: group_uid,
         version: VERSION,
         owner: tx_context::sender(ctx),
-        members: table::new(ctx),
         is_gated: gated,
-        is_open: open,
     };
     let gid = object::id(&group);
     event::emit(GroupCreated { group_id: gid, owner: group.owner });
     admin_cap.transfer_to_sender(ctx);
-    member_cap.transfer_to_sender(ctx);
     group
 }
 
@@ -67,35 +61,27 @@ public fun join(
     group: &mut Group,
     ctx: &mut TxContext,
 ) {
-    assert!(group.is_open, ENotOpenGroup);
-    assert!(!group.members.contains(ctx.sender()), EDuplicate);
-    group.members.add(ctx.sender(), true);
+    assert!(!group.is_gated, ENotOpenGroup);
     let member_cap = member_cap::mint(object::id(group), ctx);
     member_cap.transfer_to_sender(ctx);
 }
 
-public fun leave(group: &mut Group, account: address, member_cap: MemberCap) {
-    assert!(group.is_open, ENotOpenGroup);
-    assert!(group.members.contains(account), ENotInGroup);
-    group.members.remove(account);
-    // remove membership from account?
+public fun leave(group: &mut Group, member_cap: MemberCap) {
+    assert!(!group.is_gated, ENotOpenGroup);
+    member_cap::assert_cap(&member_cap, object::id(group));
     member_cap::burn(member_cap);
 }
 
 // For private groups, mods can add/remove members - ???
 public fun add_member(group: &mut Group, admin_cap: &AdminCap, account: address, ctx: &mut TxContext) {
     admin_cap::assert_cap(admin_cap, object::id(group));
-    assert!(!group.members.contains(account), EDuplicate);
-    group.members.add(account, true);
     let member_cap = member_cap::mint(object::id(group), ctx);
     member_cap.transfer_to_recipient(admin_cap, account);
 }
 
-public fun remove_member(group: &mut Group, admin_cap: &AdminCap, account: address, member_cap: MemberCap) {
+public fun remove_member(group: &mut Group, admin_cap: &AdminCap, member_cap: MemberCap) {
     admin_cap::assert_cap(admin_cap, object::id(group));
     member_cap::burn(member_cap);
-    assert!(group.members.contains(account), ENotInGroup);
-    group.members.remove(account);
 }
 
 /*
