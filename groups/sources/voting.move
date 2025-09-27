@@ -17,11 +17,11 @@ const EVoteNotDone: u64 = 2;
 const EAlreadyFinalized: u64 = 3;
 const ENotEnoughKeys: u64 = 4;
 
-/// This represents a vote.
 public struct Vote has key {
-    /// The id of a vote is the id of the object.
     id: UID,
-    //voters2: Table<address, Option<EncryptedObject>> Have to initialize by adding 1 by 1?
+    //voters2: Table<address, Option<EncryptedObject>> Used to check if address requesting encryption is part of voters. Have to initialize by adding 1 by 1?
+    title: String,
+    description: String,
     /// The eligble voters of the vote.
     voters: vector<address>,
     /// The number of options the voters can vote for.
@@ -79,6 +79,8 @@ public fun destroy_for_testing(v: Vote) {
 /// Create a vote.
 /// The associated key-ids are [pkg id][vote id].
 public fun create_vote(
+    title: String,
+    description: String,
     voters: vector<address>,
     options: u8,
     key_servers: vector<address>,
@@ -90,6 +92,8 @@ public fun create_vote(
     assert!(key_servers.length() == public_keys.length());
     Vote {
         id: object::new(ctx),
+        title,
+        description,
         voters,
         key_servers,
         public_keys,
