@@ -35,7 +35,7 @@ public fun deposit(treasury: &mut Treasury, coin: Coin<SUI>, ctx: &mut TxContext
     } else {
         let user_balance = &mut treasury.holdings[u_address];
         *user_balance = *user_balance + deposit_balance.value();
-    }
+    };
     treasury.balance.join(deposit_balance);
     assert!(balance::value(&treasury.balance) == treasury.holdings[u_address], EInvalidWithdraw);
 }
