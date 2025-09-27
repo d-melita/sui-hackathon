@@ -17,6 +17,15 @@ public(package) fun mint(group_id: ID, ctx: &mut TxContext): AdminCap {
     AdminCap { id: object::new(ctx), group_id }
 }
 
+/// Burn the AdminCap
+/// This should only be callable by a group.remove function,
+/// because we don't want to arbitrarily allow people to burn their AdminCap.
+/// We also want to handle any relevant tracking in the internals of the Group object.
+public(package) fun burn(cap: AdminCap) {
+    let AdminCap { id, group_id: _ } = cap;
+    object::delete(id)
+}
+
 /// Transfer a AdminCap to the transaction sender.
 public fun transfer_to_sender(self: AdminCap, ctx: &TxContext) {
     transfer::transfer(self, ctx.sender());
