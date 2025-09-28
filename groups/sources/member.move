@@ -1,5 +1,9 @@
 module groups::member;
 
+
+const MIN_REP: u8 = 0;
+const MAX_REP: u8 = 100;
+
 public struct Member has key, store {
     id: UID,
     user_address: address,
@@ -24,11 +28,15 @@ public fun new_member(
 }
 
 public fun increase_reputation(member: &mut Member) {
-    member.reputation = member.reputation + 1;
+    if (member.reputation < MAX_REP)  {
+        member.reputation = member.reputation + 1;
+    }
 }
 
 public fun decrease_reputation(member: &mut Member) {
-    member.reputation = member.reputation - 1;
+    if (member.reputation > MIN_REP)  {
+        member.reputation = member.reputation - 1;
+    }
 }
 
 public fun delete_member(member: Member) {

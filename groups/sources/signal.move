@@ -1,16 +1,9 @@
 module groups::signal;
 
-use sui::balance::{Self, Balance};
-use sui::coin::{Self, Coin};
-use sui::sui::SUI;
-use sui::table::{Self, Table};
-use std::string::String;
-
-const EInvalidDescriptionLen: u64 = 1;
 const EConfidenceOutOfRange: u64 = 2;
 
-const MIN_DESC_LEN: u64 = 5;
-const MAX_DESC_LENTH: u64 = 1000;
+const MIN_RATING: u8 = 0;
+const MAX_RATING: u8 = 100;
 const MIN_CONFIDENCE: u8 = 1;
 const MAX_CONFIDENCE: u8 = 10;
 
@@ -19,7 +12,8 @@ public struct Signal has key, store {
     caller: address,
     token_address: vector<u8>, // encrypted token address
     bullish: bool,
-    confidence: u8, // 1-10
+    confidence: u8,
+    rating: u8, // 1-100, voted by other members
 }
 
 public fun create_signal(token_address: vector<u8>, bullish: bool, confidence: u8, ctx: &mut TxContext): Signal {
@@ -31,6 +25,20 @@ public fun create_signal(token_address: vector<u8>, bullish: bool, confidence: u
         token_address,
         bullish,
         confidence,
+        rating: 0,
     }
 }
+
+public(package) fun upvote(signal: &mut Signal) {
+    if (signal.rating < MAX_RATING) {
+        signal.rating = signal.rating + 1;
+    }
+}
+
+public(package) fun downvote(signal: &mut Signal) {
+    if (signal.rating > MIN_RATING) {
+        signal.rating = signal.rating - 1;
+    }
+}
+
 

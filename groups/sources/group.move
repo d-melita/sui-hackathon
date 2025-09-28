@@ -11,11 +11,18 @@ use groups::member;
 //use sui::address;
 use sui::event;
 use sui::table;
+use sui::coin::Coin;
+use sui::sui::SUI;
+use std::string::String;
+
 
 use groups::admin_cap::AdminCap;
 use groups::member_cap::MemberCap;
 use groups::owner_cap::OwnerCap;
 use groups::treasury;
+use groups::signal;
+use groups::voting;
+
 
 const ENotAllowed: u64 = 1;
 const ENotInGroup: u64 = 2;
@@ -32,7 +39,10 @@ public struct Group has key {
     version: u64,
     is_gated: bool,
     members: table::Table<address, member::Member>,
-    treasury: Option<Treasury::Treasury>, // Optional treasury for the group   
+    treasury: Option<treasury::Treasury>, // Optional treasury for the group
+    signals: table::Table<ID, signal::Signal>, // Signals sent to the group  
+    current_polls: table::Table<ID, voting::Vote>, // Votes created in the group
+    past_polls: table::Table<ID, voting::VoteResult>, // Past votes created in the group
 }
 
 public struct GroupCreated has copy, drop, store { group_id: ID, owner: address }
@@ -54,6 +64,10 @@ public fun new_group(
         version: VERSION,
         is_gated: gated,
         members: table::new<address, member::Member>(ctx),
+        treasury: option::none(),
+        signals: table::new<ID, signal::Signal>(ctx),
+        current_polls: table::new<ID, voting::Vote>(ctx),
+        past_polls: table::new<ID, voting::VoteResult>(ctx),
     };
 
     let gid = object::id(&group);
@@ -115,7 +129,6 @@ public fun remove_member(group: &mut Group, admin_cap: &AdminCap, user_address: 
 }
 
 // TREASURY FUNCTIONS
-
 public fun init_treasury(group: &mut Group, admin_cap: &AdminCap, initial: Coin<SUI>, ctx: &mut TxContext) {
     admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
     assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
@@ -123,7 +136,7 @@ public fun init_treasury(group: &mut Group, admin_cap: &AdminCap, initial: Coin<
     assert!(group.treasury.is_none(), ETreasuryExists); // check if treasury already exists, if so error
 
     let treasury = treasury::create_treasury(initial, ctx);
-    group.treasury = Option::some(treasury);
+    group.treasury.fill(treasury);
 }
 
 public fun deposit_to_treasury(group: &mut Group, admin_cap: &AdminCap, coin: Coin<SUI>, ctx: &mut TxContext) {
@@ -134,7 +147,7 @@ public fun deposit_to_treasury(group: &mut Group, admin_cap: &AdminCap, coin: Co
 
 
     let treasury = group.treasury.borrow_mut();
-    treasury.deposit(treasury, coin, ctx);
+    treasury.deposit(coin, ctx);
 }
 
 public fun withdraw_from_treasury(group: &mut Group, admin_cap: &AdminCap, amount: u64, ctx: &mut TxContext) {
@@ -144,19 +157,102 @@ public fun withdraw_from_treasury(group: &mut Group, admin_cap: &AdminCap, amoun
     assert!(group.treasury.is_some(), ETreasuryNotExists); // check if treasury exists, if not error
 
     let treasury = group.treasury.borrow_mut();
-    treasury.withdraw(treasury, amount, ctx);
+    treasury.withdraw(amount, ctx);
 }
 
 public fun get_user_holdings(group: &Group, user: address, ctx: &mut TxContext): u64 {
     assert!(group.members.contains(user), ENotInGroup);
     assert!(group.treasury.is_some(), ETreasuryNotExists);
-    assert!(group.members.contains(user), ENotAllowed);
-
-    let treasury = &mut treasury.holdings[user_address];
-    *user_balance = *user_balance + deposit_balance.value();
+    assert!(group.members.contains(ctx.sender()), ENotAllowed);
 
     let treasury = group.treasury.borrow();
-    treasury.getUserHoldings(treasury, user);
+    treasury.getUserHoldings(user)
+}
+
+// SIGNAL FUNCTIONS
+
+public fun create_signal(group: &mut Group, admin_cap: &AdminCap, token_address: vector<u8>, bullish: bool, confidence: u8, ctx: &mut TxContext) {
+    admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
+    assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
+
+    let signal = signal::create_signal(token_address, bullish, confidence, ctx);
+    group.signals.add(object::id(&signal), signal);
+}
+
+public fun get_signal(group: &Group, signal_id: ID, ctx: &mut TxContext): &signal::Signal {
+    assert!(group.members.contains(ctx.sender()), ENotAllowed); // any member can view signals
+    assert!(group.signals.contains(signal_id), ENotInGroup); // check if signal exists
+    group.signals.borrow(signal_id)
+}
+
+public fun upvote_signal(group: &mut Group, signal_id: ID, ctx: &mut TxContext) { // check if member cap is valid for the group
+    assert!(group.members.contains(ctx.sender()), ENotAllowed); // check if holder of cap is a valid member - it might have left, been promoted, or promoted and removed
+
+    assert!(group.signals.contains(signal_id), ENotInGroup); // check if signal exists
+    let signal = group.signals.borrow_mut(signal_id);
+    signal.upvote();
+}
+
+public fun downvote_signal(group: &mut Group, signal_id: ID, ctx: &mut TxContext) { // check if member cap is valid for the group
+    assert!(group.members.contains(ctx.sender()), ENotAllowed); // check if holder of cap is a valid member - it might have left, been promoted, or promoted and removed
+
+    assert!(group.signals.contains(signal_id), ENotInGroup); // check if signal exists
+    let signal = group.signals.borrow_mut(signal_id);
+    signal.downvote();
+}
+
+// VOTING FUNCTIONS
+
+public fun create_vote(
+    group: &mut Group,
+    admin_cap: &AdminCap,
+    title: String,
+    description: String,
+    voters: vector<address>,
+    options: u8,
+    key_servers: vector<address>,
+    public_keys: vector<vector<u8>>,
+    threshold: u8,
+    ctx: &mut TxContext,
+) {
+    admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
+    assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
+
+    let vote = voting::create_vote(title, description, voters, options, key_servers, public_keys, threshold, ctx);
+    group.current_polls.add(object::id(&vote), vote);
+}
+
+public fun cast_vote(
+    group: &mut Group,
+    vote_id: ID,
+    encrypted_ballot: vector<u8>,
+    ctx: &mut TxContext,
+) {
+    assert!(group.members.contains(ctx.sender()), ENotAllowed); // check if holder of cap is a valid member - it might have left, been promoted, or promoted and removed
+
+    assert!(group.current_polls.contains(vote_id), ENotInGroup); // check if vote exists
+    let vote = group.current_polls.borrow_mut(vote_id);
+    vote.cast_vote(encrypted_ballot, ctx);
+}
+
+public fun finalize_vote(
+    group: &mut Group,
+    admin_cap: &AdminCap,
+    vote_id: ID,
+    derived_keys: &vector<vector<u8>>,
+    key_servers: &vector<address>,
+    ctx: &mut TxContext,
+) {
+    admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
+    assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
+
+    assert!(group.current_polls.contains(vote_id), ENotInGroup); // check if vote exists
+    let mut vote = group.current_polls.remove(vote_id);
+
+    let result = vote.finalize_vote(derived_keys, key_servers);
+    group.past_polls.add(vote_id, result);
+
+    vote.delete();
 }
 
 

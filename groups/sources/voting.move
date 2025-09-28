@@ -19,7 +19,7 @@ const EVoteNotDone: u64 = 2;
 const EAlreadyFinalized: u64 = 3;
 const ENotEnoughKeys: u64 = 4;
 
-public struct Vote has key {
+public struct Vote has key, store {
     id: UID,
     //voters2: Table<address, Option<EncryptedObject>> Used to check if address requesting encryption is part of voters. Have to initialize by adding 1 by 1?
     title: String,
@@ -70,6 +70,11 @@ public fun winner(result: &VoteResult): u8 {
         };
     });
     option
+}
+
+public fun delete(vote: Vote) {
+    let Vote { id, .. } = vote;
+    object::delete(id);
 }
 
 #[test_only]
