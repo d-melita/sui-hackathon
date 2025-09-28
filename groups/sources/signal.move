@@ -41,4 +41,25 @@ public(package) fun downvote(signal: &mut Signal) {
     }
 }
 
+// Getter functions for testing
+public fun get_caller(signal: &Signal): address {
+    signal.caller
+}
+
+public fun get_token_address(signal: &Signal): &vector<u8> {
+    &signal.token_address
+}
+
+public fun get_bullish(signal: &Signal): bool {
+    signal.bullish
+}
+
+public fun get_confidence(signal: &Signal): u8 {
+    signal.confidence
+}
+
+public fun get_rating(signal: &Signal): u8 {
+    signal.rating
+}
+
 

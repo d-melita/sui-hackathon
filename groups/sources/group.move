@@ -47,6 +47,16 @@ public struct Group has key {
 
 public struct GroupCreated has copy, drop, store { group_id: ID, owner: address }
 
+public struct SignalCreated has copy, drop, store { 
+    group_id: ID, 
+    signal_id: ID
+}
+
+public struct VoteCreated has copy, drop, store { 
+    group_id: ID, 
+    vote_id: ID
+}
+
 /// The flow is:
 /// create_group()
 ///       -> share()
@@ -176,7 +186,14 @@ entry fun create_signal(group: &mut Group, admin_cap: &AdminCap, token_address: 
     assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
 
     let signal = signal::create_signal(token_address, bullish, confidence, ctx);
-    group.signals.add(object::id(&signal), signal);
+    let signal_id = object::id(&signal);
+    group.signals.add(signal_id, signal);
+    
+    // Emit event for frontend integration
+    event::emit(SignalCreated {
+        group_id: object::id(group),
+        signal_id
+    });
 }
 
 public fun get_signal(group: &Group, signal_id: ID, ctx: &mut TxContext): &signal::Signal {
@@ -219,7 +236,14 @@ entry fun create_vote(
     assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
 
     let vote = voting::create_vote(title, description, voters, options, key_servers, public_keys, threshold, ctx);
-    group.current_polls.add(object::id(&vote), vote);
+    let vote_id = object::id(&vote);
+    group.current_polls.add(vote_id, vote);
+    
+    // Emit event for frontend integration
+    event::emit(VoteCreated {
+        group_id: object::id(group),
+        vote_id
+    });
 }
 
 entry fun cast_vote(
@@ -324,4 +348,69 @@ entry fun member_add_member(group: &mut Group, user_address: address, member_cap
     let new_member_cap = member_cap::mint(object::id(group), ctx);
     member_cap::member_transfer_to_recipient(new_member_cap, member_cap, user_address);
     add_new_member(group, user_address, 0, ctx);
+}
+
+// Public getter functions for testing
+public fun get_treasury(group: &Group): &Option<treasury::Treasury> {
+    &group.treasury
+}
+
+public fun contains_member(group: &Group, user: address): bool {
+    group.members.contains(user)
+}
+
+public fun get_member_role(group: &Group, user: address): u8 {
+    group.members.borrow(user).get_role()
+}
+
+public fun get_members_count(group: &Group): u64 {
+    group.members.length()
+}
+
+public fun contains_signal(group: &Group, signal_id: ID): bool {
+    group.signals.contains(signal_id)
+}
+
+#[test_only]
+public fun get_signals_count(group: &Group): u64 {
+    group.signals.length()
+}
+
+// Getter functions for voting testing
+#[test_only] 
+public fun get_current_polls_count(group: &Group): u64 {
+    group.current_polls.length()
+}
+
+#[test_only]
+public fun get_past_polls_count(group: &Group): u64 {
+    group.past_polls.length()
+}
+
+#[test_only]
+public fun contains_current_poll(group: &Group, vote_id: ID): bool {
+    group.current_polls.contains(vote_id)
+}
+
+#[test_only]
+public fun contains_past_poll(group: &Group, vote_id: ID): bool {
+    group.past_polls.contains(vote_id)
+}
+
+#[test_only]
+public fun create_signal_for_test(group: &mut Group, admin_cap: &AdminCap, token_address: vector<u8>, bullish: bool, confidence: u8, ctx: &mut TxContext): ID {
+    admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
+    assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
+
+    let signal = signal::create_signal(token_address, bullish, confidence, ctx);
+    let signal_id = object::id(&signal);
+    group.signals.add(signal_id, signal);
+    
+    // Emit event for frontend integration (same as production function)
+    event::emit(SignalCreated {
+        group_id: object::id(group),
+        signal_id
+    });
+    
+    signal_id // Return the signal ID for testing
 }

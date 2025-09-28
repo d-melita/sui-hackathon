@@ -83,6 +83,47 @@ public fun destroy_for_testing(v: Vote) {
     object::delete(id);
 }
 
+// Getter functions for testing
+#[test_only]
+public fun get_title(vote: &Vote): &String {
+    &vote.title
+}
+
+#[test_only]
+public fun get_description(vote: &Vote): &String {
+    &vote.description
+}
+
+#[test_only]
+public fun get_voters(vote: &Vote): &vector<address> {
+    &vote.voters
+}
+
+#[test_only]
+public fun get_options(vote: &Vote): u8 {
+    vote.options
+}
+
+#[test_only]
+public fun get_is_finalized(vote: &Vote): bool {
+    vote.is_finalized
+}
+
+#[test_only]
+public fun get_votes_count(vote: &Vote): u64 {
+    vote.votes.length()
+}
+
+#[test_only]
+public fun get_threshold(vote: &Vote): u8 {
+    vote.threshold
+}
+
+#[test_only]
+public fun get_key_servers_count(vote: &Vote): u64 {
+    vote.key_servers.length()
+}
+
 /// Create a vote.
 /// The associated key-ids are [pkg id][vote id].
 public fun create_vote(
