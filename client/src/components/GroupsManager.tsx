@@ -3,12 +3,22 @@ import { useGroupsManager } from "../hooks/useGroupsManager";
 import { useGroups } from "../hooks/useGroups";
 import { useMessaging } from "../hooks/useMessaging";
 import { useSessionKey } from "../providers/SessionKeyProvider";
+import { useSeal } from "../hooks/useSeal";
 import { useSuiClient } from "@mysten/dapp-kit";
+import { fromHex } from "@mysten/utils";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
 import { ConnectButton } from "@mysten/dapp-kit";
-import { Plus, Users, DollarSign, TrendingUp, Vote } from "lucide-react";
+import {
+  Plus,
+  Users,
+  DollarSign,
+  TrendingUp,
+  Vote,
+  Copy,
+  Check,
+} from "lucide-react";
 
 export default function GroupsManager() {
   const suiClient = useSuiClient();
@@ -29,6 +39,7 @@ export default function GroupsManager() {
     downvoteSignal,
     addMember,
     getAdminCapabilities,
+    fetchSignals,
   } = useGroups();
 
   // Get messaging functionality
@@ -43,6 +54,10 @@ export default function GroupsManager() {
 
   // Get session key functionality
   const { sessionKey, isInitializing, initializeManually } = useSessionKey();
+
+  // Get Seal functionality
+  const { encryptTokenAddress, decryptEncryptedTokenAddress, isSealReady } =
+    useSeal(sessionKey || undefined);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<
@@ -59,6 +74,15 @@ export default function GroupsManager() {
   const [tokenAddress, setTokenAddress] = useState("");
   const [confidence, setConfidence] = useState("");
   const [signalId, setSignalId] = useState("");
+  const [encryptedTokenAddress, setEncryptedTokenAddress] = useState<
+    string | null
+  >(null);
+  const [isEncrypting, setIsEncrypting] = useState(false);
+
+  // Signal display state
+  const [signals, setSignals] = useState<any[]>([]);
+  const [copiedCiphertext, setCopiedCiphertext] = useState<string | null>(null);
+  const [decryptingId, setDecryptingId] = useState<string | null>(null);
 
   // Treasury state
   const [treasuryBalance, setTreasuryBalance] = useState<number | null>(null);
@@ -502,11 +526,65 @@ export default function GroupsManager() {
 
   // Fetch user's holdings in the treasury
 
+  const handleEncryptTokenAddress = async () => {
+    if (!selectedGroupId || !tokenAddress.trim()) {
+      setStatus({
+        kind: "err",
+        msg: "Please select a group and enter a token address",
+      });
+      return;
+    }
+
+    if (!isSealReady) {
+      setStatus({
+        kind: "err",
+        msg: "Seal not ready. Please initialize session key first.",
+      });
+      return;
+    }
+
+    try {
+      setIsEncrypting(true);
+      setStatus({ kind: "idle" });
+
+      console.log("🔐 Encrypting token address:", tokenAddress);
+      const encryptionResult = await encryptTokenAddress(
+        tokenAddress,
+        selectedGroupId,
+        "0xd67f6b7d67152b9efe615063d7a4e5326c6f213f67e67e4e8ef582342b1db0c7", // GROUPS_PACKAGE_ID
+      );
+
+      console.log("🔐 Encryption result:", encryptionResult);
+      const ciphertextHex = "0x" + encryptionResult.encryptedTokenAddress;
+      setEncryptedTokenAddress(ciphertextHex);
+
+      setStatus({
+        kind: "ok",
+        msg: `Token address encrypted successfully!\nCiphertext: ${ciphertextHex}`,
+      });
+    } catch (error: any) {
+      setStatus({
+        kind: "err",
+        msg: `Error encrypting token address: ${error.message}`,
+      });
+    } finally {
+      setIsEncrypting(false);
+    }
+  };
+
   const handleCreateSignal = async (bullish: boolean) => {
     if (!selectedGroupId || !tokenAddress.trim() || !confidence.trim()) {
       setStatus({
         kind: "err",
         msg: "Please select a group and fill all fields",
+      });
+      return;
+    }
+
+    if (!encryptedTokenAddress) {
+      setStatus({
+        kind: "err",
+        msg: "Please encrypt the token address first using the 'Encrypt' button.",
       });
       return;
     }
@@ -524,17 +602,50 @@ export default function GroupsManager() {
         return;
       }
 
+      // Convert hex string back to bytes for the contract
+      const ciphertextBytes = fromHex(
+        encryptedTokenAddress.startsWith("0x")
+          ? encryptedTokenAddress.slice(2)
+          : encryptedTokenAddress,
+      );
+
+      // Create signal with encrypted token address
       const result = await createSignal(
         selectedGroupId,
         adminCapId,
-        tokenAddress,
+        ciphertextBytes, // Pass the encrypted bytes
         bullish,
         parseInt(confidence),
       );
+
+      const createdId = (result as any)?.signalId;
+
+      // Add to signals list for display
+      const newSignal = {
+        id: createdId,
+        tokenAddress: "Encrypted", // Show as encrypted
+        ciphertext: fromHex(
+          encryptedTokenAddress.startsWith("0x")
+            ? encryptedTokenAddress.slice(2)
+            : encryptedTokenAddress,
+        ), // Store as Uint8Array
+        bullish,
+        confidence: parseInt(confidence),
+        sender: "You", // Current user
+        createdAt: new Date().toISOString(),
+      };
+
+      setSignals((prev) => [newSignal, ...prev]);
+
       setStatus({
         kind: "ok",
-        msg: `${bullish ? "Bullish" : "Bearish"} signal created! Transaction: ${result.digest}`,
+        msg: `${bullish ? "Bullish" : "Bearish"} signal created!\nSignal ID: ${createdId ?? "unknown"}\nCiphertext: ${encryptedTokenAddress}`,
       });
+
+      // Clear form
+      setTokenAddress("");
+      setConfidence("");
+      setEncryptedTokenAddress(null);
     } catch (error: any) {
       setStatus({
         kind: "err",
@@ -587,6 +698,68 @@ export default function GroupsManager() {
       setStatus({
         kind: "err",
         msg: `Error downvoting signal: ${error.message}`,
+      });
+    }
+  };
+
+  const handleCopyCiphertext = async (ciphertext: string) => {
+    try {
+      await navigator.clipboard.writeText(ciphertext);
+      setCopiedCiphertext(ciphertext);
+      setTimeout(() => setCopiedCiphertext(null), 2000);
+    } catch (error) {
+      console.error("Failed to copy ciphertext:", error);
+    }
+  };
+
+  const handleFetchSignals = async () => {
+    if (!selectedGroupId) {
+      setStatus({ kind: "err", msg: "Please select a group first" });
+      return;
+    }
+
+    try {
+      setStatus({ kind: "idle" });
+      console.log("🔍 Fetching signals for group:", selectedGroupId);
+
+      const fetchedSignals = await fetchSignals(selectedGroupId);
+      console.log("🔍 Fetched signals:", fetchedSignals);
+
+      // Convert fetched signals to our display format
+      const displaySignals = fetchedSignals.map((signal: any) => ({
+        id: signal.id,
+        tokenAddress: "Encrypted", // The tokenAddress is encrypted bytes, not readable
+        ciphertext: signal.tokenAddress
+          ? Array.isArray(signal.tokenAddress)
+            ? new Uint8Array(signal.tokenAddress)
+            : signal.tokenAddress
+          : null,
+        bullish: signal.bullish,
+        confidence: signal.confidence,
+        rating: signal.rating,
+        sender: signal.caller
+          ? typeof signal.caller === "string"
+            ? signal.caller
+            : Array.isArray(signal.caller)
+              ? "0x" +
+                Array.from(signal.caller)
+                  .map((b: any) => b.toString(16).padStart(2, "0"))
+                  .join("")
+              : String(signal.caller)
+          : "Unknown", // caller is the creator/author of the signal
+        createdAt: new Date().toISOString(),
+      }));
+
+      setSignals(displaySignals);
+      setStatus({
+        kind: "ok",
+        msg: `Fetched ${displaySignals.length} signals`,
+      });
+    } catch (error: any) {
+      console.error("❌ Error fetching signals:", error);
+      setStatus({
+        kind: "err",
+        msg: `Error fetching signals: ${error.message}`,
       });
     }
   };
@@ -1032,11 +1205,37 @@ export default function GroupsManager() {
                         <div className="space-y-3">
                           <div>
                             <Input
-                              placeholder="Token Address"
+                              placeholder="Token Address (e.g. 0x...)"
                               value={tokenAddress}
                               onChange={(e) => setTokenAddress(e.target.value)}
                             />
                           </div>
+                          <div className="flex gap-2">
+                            <Button
+                              onClick={handleEncryptTokenAddress}
+                              disabled={
+                                !isSealReady ||
+                                isEncrypting ||
+                                !tokenAddress.trim()
+                              }
+                              variant="outline"
+                              className="flex-1"
+                            >
+                              {isEncrypting
+                                ? "Encrypting..."
+                                : "🔐 Encrypt Token Address"}
+                            </Button>
+                          </div>
+                          {encryptedTokenAddress && (
+                            <div className="p-3 bg-green-50 border border-green-200 rounded-md">
+                              <p className="text-sm text-green-800 font-medium">
+                                ✅ Token address encrypted!
+                              </p>
+                              <p className="text-xs text-green-600 mt-1 break-all">
+                                Ciphertext: {encryptedTokenAddress}
+                              </p>
+                            </div>
+                          )}
                           <div>
                             <Input
                               placeholder="Confidence (0-100)"
@@ -1050,16 +1249,217 @@ export default function GroupsManager() {
                           <Button
                             onClick={() => handleCreateSignal(true)}
                             className="bg-green-600 hover:bg-green-700"
+                            disabled={!isSealReady || !encryptedTokenAddress}
                           >
                             ↑ Create Bullish Signal
                           </Button>
                           <Button
                             onClick={() => handleCreateSignal(false)}
                             className="bg-red-600 hover:bg-red-700"
+                            disabled={!isSealReady || !encryptedTokenAddress}
                           >
                             ↓ Create Bearish Signal
                           </Button>
                         </div>
+                        {!isSealReady && (
+                          <p className="text-sm text-yellow-600">
+                            ⚠️ Seal not ready. Please initialize session key
+                            first.
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* Display Signals */}
+                    <Card>
+                      <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <CardTitle>Recent Signals</CardTitle>
+                          <Button
+                            onClick={handleFetchSignals}
+                            variant="outline"
+                            size="sm"
+                          >
+                            Fetch Signals
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        {signals.length === 0 ? (
+                          <p className="text-muted-foreground text-center py-4">
+                            No signals yet. Create one above!
+                          </p>
+                        ) : (
+                          <div className="space-y-3">
+                            {signals.map((signal, index) => (
+                              <div
+                                key={signal.id || index}
+                                className="border rounded-lg p-4 space-y-2"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span
+                                      className={`px-2 py-1 rounded text-xs font-medium ${
+                                        signal.bullish
+                                          ? "bg-green-100 text-green-800"
+                                          : "bg-red-100 text-red-800"
+                                      }`}
+                                    >
+                                      {signal.bullish
+                                        ? "↑ Bullish"
+                                        : "↓ Bearish"}
+                                    </span>
+                                    <span className="text-sm text-muted-foreground">
+                                      Confidence: {signal.confidence}%
+                                    </span>
+                                    <span className="text-sm text-muted-foreground ml-2">
+                                      Rating: {signal.rating || 0}
+                                    </span>
+                                  </div>
+                                  <span className="text-xs text-muted-foreground">
+                                    {new Date(
+                                      signal.createdAt,
+                                    ).toLocaleString()}
+                                  </span>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <div>
+                                    <span className="text-sm font-medium">
+                                      Signal ID:
+                                    </span>
+                                    <span className="text-sm ml-2 font-mono">
+                                      {signal.id}
+                                    </span>
+                                  </div>
+
+                                  <div>
+                                    <span className="text-sm font-medium">
+                                      Token:
+                                    </span>
+                                    <span className="text-sm ml-2 font-mono">
+                                      {signal.tokenAddress}
+                                    </span>
+                                  </div>
+
+                                  <div>
+                                    <span className="text-sm font-medium">
+                                      Creator:
+                                    </span>
+                                    <span className="text-sm ml-2">
+                                      {signal.sender}
+                                    </span>
+                                  </div>
+
+                                  <div>
+                                    <span className="text-sm font-medium">
+                                      Ciphertext:
+                                    </span>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <code className="text-xs bg-gray-100 p-2 rounded flex-1 break-all text-black">
+                                        {signal.ciphertext
+                                          ? typeof signal.ciphertext ===
+                                            "string"
+                                            ? signal.ciphertext
+                                            : "0x" +
+                                              Array.from(signal.ciphertext)
+                                                .map((b: any) =>
+                                                  b
+                                                    .toString(16)
+                                                    .padStart(2, "0"),
+                                                )
+                                                .join("")
+                                          : "No ciphertext available"}
+                                      </code>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() =>
+                                          handleCopyCiphertext(
+                                            typeof signal.ciphertext ===
+                                              "string"
+                                              ? signal.ciphertext
+                                              : "0x" +
+                                                  Array.from(signal.ciphertext)
+                                                    .map((b: any) =>
+                                                      b
+                                                        .toString(16)
+                                                        .padStart(2, "0"),
+                                                    )
+                                                    .join(""),
+                                          )
+                                        }
+                                        className="shrink-0"
+                                      >
+                                        {copiedCiphertext ===
+                                        signal.ciphertext ? (
+                                          <Check className="w-4 h-4" />
+                                        ) : (
+                                          <Copy className="w-4 h-4" />
+                                        )}
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        onClick={async () => {
+                                          if (!selectedGroupId) return;
+                                          try {
+                                            setDecryptingId(
+                                              signal.id || String(index),
+                                            );
+                                            const decryptedHex =
+                                              await decryptEncryptedTokenAddress(
+                                                signal.ciphertext,
+                                                selectedGroupId,
+                                                "0xd67f6b7d67152b9efe615063d7a4e5326c6f213f67e67e4e8ef582342b1db0c7",
+                                              );
+                                            setSignals((prev) =>
+                                              prev.map((s, i) =>
+                                                (s.id || String(i)) ===
+                                                (signal.id || String(index))
+                                                  ? {
+                                                      ...s,
+                                                      decrypted: decryptedHex,
+                                                    }
+                                                  : s,
+                                              ),
+                                            );
+                                          } catch (error: any) {
+                                            setStatus({
+                                              kind: "err",
+                                              msg: `Failed to decrypt: ${error.message}`,
+                                            });
+                                          } finally {
+                                            setDecryptingId(null);
+                                          }
+                                        }}
+                                        className="shrink-0"
+                                      >
+                                        {decryptingId ===
+                                        (signal.id || String(index))
+                                          ? "Decrypting..."
+                                          : "Decrypt"}
+                                      </Button>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      Copy this ciphertext to decrypt off-chain
+                                      using Seal tools
+                                    </p>
+                                    {signal.decrypted && (
+                                      <div className="mt-2 text-sm">
+                                        <span className="font-medium">
+                                          Decrypted token (hex):
+                                        </span>
+                                        <span className="ml-2 font-mono">
+                                          {signal.decrypted}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
 

@@ -8,7 +8,7 @@ import { Transaction } from "@mysten/sui/transactions";
 
 // Replace with your actual package ID after deployment
 const GROUPS_PACKAGE_ID =
-  "0x1cb284f40afe2f5ca6fd5c7a2f07c027763c861d16e91fd3d149b20d33094f39";
+  "0xd67f6b7d67152b9efe615063d7a4e5326c6f213f67e67e4e8ef582342b1db0c7";
 
 export const useGroups = () => {
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
@@ -28,9 +28,49 @@ export const useGroups = () => {
 
       const result = await signAndExecute({
         transaction: tx,
-      });
+        options: {
+          showEffects: true,
+          showObjectChanges: true,
+          showEvents: true,
+        },
+        requestType: "WaitForEffectsCert" as any,
+      } as any);
 
-      return result;
+      console.log("Transaction result:", result);
+
+      // Try to extract the newly created Group object's ID from either
+      // objectChanges (preferred) or effects.created fallback
+      let groupId: string | null = null;
+
+      const changes: any[] = (result as any)?.objectChanges || [];
+      for (const change of changes) {
+        if (
+          change?.type === "created" &&
+          typeof change?.objectType === "string" &&
+          change.objectType.includes("groups::group::Group")
+        ) {
+          groupId = change.objectId;
+          break;
+        }
+      }
+
+      if (!groupId && (result as any)?.effects?.created?.length) {
+        const created = (result as any).effects.created;
+        for (const item of created) {
+          // We don't have the type here, so this is best-effort fallback.
+          // Caller will still fetch by events if needed.
+          if (item?.reference?.objectId) {
+            groupId = item.reference.objectId;
+            break;
+          }
+        }
+      }
+
+      return {
+        digest: (result as any)?.digest,
+        groupId,
+        raw: result,
+      };
     },
     [signAndExecute, currentAccount],
   );
@@ -184,16 +224,35 @@ export const useGroups = () => {
     [signAndExecute, currentAccount],
   );
 
-  // Create a signal
+  // Create a signal (accepts ciphertext as hex string (0x...) or Uint8Array)
   const createSignal = useCallback(
     async (
       groupId: string,
       adminCapId: string,
-      tokenAddress: string,
+      ciphertext: string | Uint8Array,
       bullish: boolean,
       confidence: number,
     ) => {
       if (!currentAccount) throw new Error("No account connected");
+
+      // Normalize ciphertext to bytes
+      let ciphertextBytes: number[];
+      if (typeof ciphertext === "string") {
+        const hex = ciphertext.startsWith("0x")
+          ? ciphertext.slice(2)
+          : ciphertext;
+        if (hex.length % 2 !== 0) {
+          throw new Error("Ciphertext hex must have even length");
+        }
+        ciphertextBytes = [];
+        for (let i = 0; i < hex.length; i += 2) {
+          const byte = parseInt(hex.slice(i, i + 2), 16);
+          if (Number.isNaN(byte)) throw new Error("Invalid ciphertext hex");
+          ciphertextBytes.push(byte);
+        }
+      } else {
+        ciphertextBytes = Array.from(ciphertext);
+      }
 
       const tx = new Transaction();
       tx.moveCall({
@@ -201,10 +260,7 @@ export const useGroups = () => {
         arguments: [
           tx.object(groupId),
           tx.object(adminCapId),
-          tx.pure.vector(
-            "u8",
-            Array.from(new TextEncoder().encode(tokenAddress)),
-          ),
+          tx.pure.vector("u8", ciphertextBytes),
           tx.pure.bool(bullish),
           tx.pure.u8(confidence),
         ],
@@ -212,9 +268,33 @@ export const useGroups = () => {
 
       const result = await signAndExecute({
         transaction: tx,
-      });
+        options: {
+          showEffects: true,
+          showObjectChanges: true,
+          showEvents: true,
+        },
+        requestType: "WaitForEffectsCert" as any,
+      } as any);
 
-      return result;
+      // Try to extract created Signal object id
+      let signalId: string | null = null;
+      const changes: any[] = (result as any)?.objectChanges || [];
+      for (const change of changes) {
+        if (
+          change?.type === "created" &&
+          typeof change?.objectType === "string" &&
+          change.objectType.includes("groups::signal::Signal")
+        ) {
+          signalId = change.objectId;
+          break;
+        }
+      }
+
+      return {
+        digest: (result as any)?.digest,
+        signalId,
+        raw: result,
+      };
     },
     [signAndExecute, currentAccount],
   );
@@ -483,8 +563,143 @@ export const useGroups = () => {
           return null;
         }
       } catch (error) {
-        console.error("❌ Error fetching admin capabilities:", error);
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("❌ Error fetching admin capabilities:", message);
         return null;
+      }
+    },
+    [suiClient, currentAccount],
+  );
+
+  const fetchSignals = useCallback(
+    async (groupId: string) => {
+      if (!currentAccount) throw new Error("No account connected");
+
+      try {
+        console.log("🔍 Fetching signals for group:", groupId);
+
+        const groupObject = await suiClient.getObject({
+          id: groupId,
+          options: { showContent: true },
+        });
+
+        if (!groupObject.data?.content) {
+          throw new Error("Group object not found");
+        }
+
+        const groupData = groupObject.data.content as any;
+        console.log("🔍 Group data structure:", groupData);
+
+        // Get signal IDs from the signal_ids vector
+        const signalIds = groupData.fields.signal_ids || [];
+        console.log("🔍 Signal IDs:", signalIds);
+
+        if (signalIds.length === 0) {
+          console.log("🔍 No signals found");
+          return [];
+        }
+
+        // Use the get_signal_data view function to get REAL encrypted data
+        const signals = [];
+        for (const signalId of signalIds) {
+          try {
+            console.log("🔍 Getting REAL signal data for:", signalId);
+
+            // Call the get_signal_data view function using Transaction
+            const tx = new Transaction();
+            tx.moveCall({
+              target: `${GROUPS_PACKAGE_ID}::group::get_signal_data`,
+              arguments: [
+                tx.object(groupId), // &Group
+                tx.pure.id(signalId), // ID
+              ],
+            });
+
+            const result = await suiClient.devInspectTransactionBlock({
+              sender:
+                currentAccount?.address ||
+                "0x0000000000000000000000000000000000000000000000000000000000000000",
+              transactionBlock: tx,
+            });
+
+            console.log("🔍 REAL Signal data result:", result);
+
+            if (result.results && result.results.length > 0) {
+              const returnValues = result.results[0].returnValues;
+              console.log("🔍 REAL Signal return values:", returnValues);
+
+              if (returnValues && returnValues.length >= 5) {
+                const [caller, tokenAddress, bullish, confidence, rating] =
+                  returnValues;
+
+                console.log("🔍 REAL Extracted values:");
+                console.log("🔍 - caller:", caller);
+                console.log("🔍 - tokenAddress:", tokenAddress);
+                console.log("🔍 - bullish:", bullish);
+                console.log("🔍 - confidence:", confidence);
+                console.log("🔍 - rating:", rating);
+
+                signals.push({
+                  id: signalId,
+                  caller: caller[0],
+                  tokenAddress: tokenAddress[0], // REAL encrypted bytes
+                  bullish: bullish[0],
+                  confidence: confidence[0],
+                  rating: rating[0],
+                });
+                console.log("🔍 Successfully added REAL signal data!");
+              } else {
+                console.warn(
+                  "🔍 Insufficient return values, using placeholder",
+                );
+                signals.push({
+                  id: signalId,
+                  caller: "Unknown",
+                  tokenAddress: "Encrypted",
+                  bullish: true,
+                  confidence: 5,
+                  rating: 0,
+                });
+              }
+            } else {
+              console.warn(
+                "🔍 No results from view function, using placeholder",
+              );
+              signals.push({
+                id: signalId,
+                caller: "Unknown",
+                tokenAddress: "Encrypted",
+                bullish: true,
+                confidence: 5,
+                rating: 0,
+              });
+            }
+          } catch (error) {
+            console.warn(
+              "🔍 Failed to fetch REAL signal data:",
+              signalId,
+              error,
+            );
+            const message =
+              error instanceof Error ? error.message : String(error);
+            console.warn("🔍 Error details:", message);
+            signals.push({
+              id: signalId,
+              caller: "Unknown",
+              tokenAddress: "Encrypted",
+              bullish: true,
+              confidence: 5,
+              rating: 0,
+            });
+          }
+        }
+
+        console.log("🔍 Fetched signals (IDs only):", signals);
+        return signals;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("Error fetching signals:", message);
+        return [];
       }
     },
     [suiClient, currentAccount],
@@ -506,5 +721,6 @@ export const useGroups = () => {
     promoteMemberToAdmin,
     demoteAdminToMember,
     getAdminCapabilities,
+    fetchSignals,
   };
 };

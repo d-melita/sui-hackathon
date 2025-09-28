@@ -5,7 +5,7 @@ import { useMessaging } from "./useMessaging";
 
 // Replace with your actual package ID after deployment
 const GROUPS_PACKAGE_ID =
-  "0x1cb284f40afe2f5ca6fd5c7a2f07c027763c861d16e91fd3d149b20d33094f39";
+  "0xd67f6b7d67152b9efe615063d7a4e5326c6f213f67e67e4e8ef582342b1db0c7";
 
 export const useGroupsManager = () => {
   const currentAccount = useCurrentAccount();
@@ -151,10 +151,13 @@ export const useGroupsManager = () => {
         })),
       ];
 
-      // Limit to last 5 groups to reduce clutter
-      const limitedGroups = allGroups.slice(0, 1);
+      // Show only the latest group (first one due to descending order)
+      const latestOnly = allGroups.slice(0, 1);
 
-      setGroups(limitedGroups);
+      setGroups(latestOnly);
+      if (latestOnly.length > 0 && latestOnly[0].data?.objectId) {
+        setSelectedGroupId(latestOnly[0].data.objectId);
+      }
     } catch (err) {
       const errorMsg =
         err instanceof Error ? err.message : "Failed to fetch groups";
@@ -177,39 +180,33 @@ export const useGroupsManager = () => {
 
       try {
         console.log("🏗️ Creating group...");
-        const groupResult = await createGroup(gated);
+        const txResult = await createGroup(gated);
 
-        if (groupResult) {
-          console.log("✅ Group created successfully");
-
-          // Extract group ID from the transaction result
-          let groupId = null;
-
-          if ((groupResult as any).objectChanges) {
-            for (const change of (groupResult as any).objectChanges) {
-              console.log("🔍 Checking change:", change);
-              if (
-                change.type === "created" &&
-                change.objectType?.includes("groups::group::Group")
-              ) {
-                groupId = (change as any).objectId;
-                console.log("✅ Found group ID:", groupId);
-                break;
-              }
-            }
-          }
-
+        if (txResult) {
+          const groupId = (txResult as any).groupId as string | null;
           if (groupId) {
             console.log("🔗 Group ID:", groupId);
-            console.log("✅ Group created successfully");
+            setSelectedGroupId(groupId);
+            // Put it at the top of the list immediately
+            setGroups([
+              {
+                data: {
+                  objectId: groupId,
+                  type: "groups::group::Group",
+                  version: "1",
+                },
+              },
+            ]);
+          } else {
+            console.warn("Could not extract groupId from createGroup result");
           }
 
           // Immediate refresh after creation
           setTimeout(() => {
             fetchGroups();
-          }, 2000); // Wait 2 seconds for transaction to be indexed
+          }, 1500);
 
-          return groupResult;
+          return txResult;
         }
 
         return null;
