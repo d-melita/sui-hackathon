@@ -87,7 +87,7 @@ entry fun create_group(
 }
 
 /// Mint/bind membership — MVP without checks; add gates later
-public fun join(
+entry fun join(
     group: &mut Group,
     ctx: &mut TxContext,
 ) {
@@ -102,7 +102,7 @@ public fun join(
 }
 
 // For private groups, mods can add/remove members - owner should pass its admin cap
-public fun add_member(group: &mut Group, admin_cap: &AdminCap, user_address: address, ctx: &mut TxContext) {
+entry fun add_member(group: &mut Group, admin_cap: &AdminCap, user_address: address, ctx: &mut TxContext) {
     admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
     assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 2 || group.members.borrow(ctx.sender()).get_role() == 3), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
 
@@ -113,14 +113,14 @@ public fun add_member(group: &mut Group, admin_cap: &AdminCap, user_address: add
     add_new_member(group, user_address, 0, ctx);
 }
 
-public fun leave(group: &mut Group, ctx: &mut TxContext) {
+entry fun leave(group: &mut Group, ctx: &TxContext) {
     assert!(group.members.contains(ctx.sender()), ENotInGroup); // if user not in group, they cannot leave - any type of user can leave
 
     let user_address = ctx.sender();
     remove_member_by_address(group, user_address);
 }
 
-public fun remove_member(group: &mut Group, admin_cap: &AdminCap, user_address: address, ctx: &mut TxContext) {
+entry fun remove_member(group: &mut Group, admin_cap: &AdminCap, user_address: address, ctx: &TxContext) {
     admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
     assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
 
@@ -129,7 +129,7 @@ public fun remove_member(group: &mut Group, admin_cap: &AdminCap, user_address: 
 }
 
 // TREASURY FUNCTIONS
-public fun init_treasury(group: &mut Group, admin_cap: &AdminCap, initial: Coin<SUI>, ctx: &mut TxContext) {
+entry fun init_treasury(group: &mut Group, admin_cap: &AdminCap, initial: Coin<SUI>, ctx: &mut TxContext) {
     admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
     assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
 
@@ -139,7 +139,7 @@ public fun init_treasury(group: &mut Group, admin_cap: &AdminCap, initial: Coin<
     group.treasury.fill(treasury);
 }
 
-public fun deposit_to_treasury(group: &mut Group, admin_cap: &AdminCap, coin: Coin<SUI>, ctx: &mut TxContext) {
+entry fun deposit_to_treasury(group: &mut Group, admin_cap: &AdminCap, coin: Coin<SUI>, ctx: &TxContext) {
     admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
     assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
 
@@ -150,7 +150,7 @@ public fun deposit_to_treasury(group: &mut Group, admin_cap: &AdminCap, coin: Co
     treasury.deposit(coin, ctx);
 }
 
-public fun withdraw_from_treasury(group: &mut Group, admin_cap: &AdminCap, amount: u64, ctx: &mut TxContext) {
+entry fun withdraw_from_treasury(group: &mut Group, admin_cap: &AdminCap, amount: u64, ctx: &mut TxContext) {
     admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
     assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
 
@@ -171,7 +171,7 @@ public fun get_user_holdings(group: &Group, user: address, ctx: &mut TxContext):
 
 // SIGNAL FUNCTIONS
 
-public fun create_signal(group: &mut Group, admin_cap: &AdminCap, token_address: vector<u8>, bullish: bool, confidence: u8, ctx: &mut TxContext) {
+entry fun create_signal(group: &mut Group, admin_cap: &AdminCap, token_address: vector<u8>, bullish: bool, confidence: u8, ctx: &mut TxContext) {
     admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
     assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
 
@@ -185,7 +185,7 @@ public fun get_signal(group: &Group, signal_id: ID, ctx: &mut TxContext): &signa
     group.signals.borrow(signal_id)
 }
 
-public fun upvote_signal(group: &mut Group, signal_id: ID, ctx: &mut TxContext) { // check if member cap is valid for the group
+entry fun upvote_signal(group: &mut Group, signal_id: ID, ctx: &TxContext) { // check if member cap is valid for the group
     assert!(group.members.contains(ctx.sender()), ENotAllowed); // check if holder of cap is a valid member - it might have left, been promoted, or promoted and removed
 
     assert!(group.signals.contains(signal_id), ENotInGroup); // check if signal exists
@@ -193,7 +193,7 @@ public fun upvote_signal(group: &mut Group, signal_id: ID, ctx: &mut TxContext) 
     signal.upvote();
 }
 
-public fun downvote_signal(group: &mut Group, signal_id: ID, ctx: &mut TxContext) { // check if member cap is valid for the group
+entry fun downvote_signal(group: &mut Group, signal_id: ID, ctx: &TxContext) { // check if member cap is valid for the group
     assert!(group.members.contains(ctx.sender()), ENotAllowed); // check if holder of cap is a valid member - it might have left, been promoted, or promoted and removed
 
     assert!(group.signals.contains(signal_id), ENotInGroup); // check if signal exists
@@ -203,7 +203,7 @@ public fun downvote_signal(group: &mut Group, signal_id: ID, ctx: &mut TxContext
 
 // VOTING FUNCTIONS
 
-public fun create_vote(
+entry fun create_vote(
     group: &mut Group,
     admin_cap: &AdminCap,
     title: String,
@@ -222,7 +222,7 @@ public fun create_vote(
     group.current_polls.add(object::id(&vote), vote);
 }
 
-public fun cast_vote(
+entry fun cast_vote(
     group: &mut Group,
     vote_id: ID,
     encrypted_ballot: vector<u8>,
@@ -241,7 +241,7 @@ public fun finalize_vote(
     vote_id: ID,
     derived_keys: &vector<vector<u8>>,
     key_servers: &vector<address>,
-    ctx: &mut TxContext,
+    ctx: &TxContext,
 ) {
     admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
     assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
@@ -263,7 +263,7 @@ public fun finalize_vote(
 // ADDITIONAL FUNCTIONS FOR ROLES MANAGEMENT
 
 /// Promote a member to an admin - Only the group owner can do this
-public fun promote_member_to_admin(group: &mut Group, owner_cap: &OwnerCap, user_address: address, ctx: &mut TxContext) {
+entry fun promote_member_to_admin(group: &mut Group, owner_cap: &OwnerCap, user_address: address, ctx: &mut TxContext) {
     owner_cap::assert_cap(owner_cap, object::id(group)); // check if owner cap is valid for the group
     assert!(group.members.contains(ctx.sender()) && group.members.borrow(ctx.sender()).get_role() == 2, ENotAllowed); // check if holder of cap is the owner - it might have left
 
@@ -279,7 +279,7 @@ public fun promote_member_to_admin(group: &mut Group, owner_cap: &OwnerCap, user
 }
 
 /// Demote an admin to a member - Only the group owner can do this
-public fun demote_admin_to_member(group: &mut Group, owner_cap: &OwnerCap, user_address: address, ctx: &mut TxContext) {
+entry fun demote_admin_to_member(group: &mut Group, owner_cap: &OwnerCap, user_address: address, ctx: &mut TxContext) {
     owner_cap::assert_cap(owner_cap, object::id(group)); // check if owner cap is valid for the group
     assert!(group.members.contains(ctx.sender()) && group.members.borrow(ctx.sender()).get_role() == 2, ENotAllowed); // check if holder of cap is the owner - it might have left
 
@@ -315,7 +315,7 @@ public fun remove_member_by_address(
     member::delete_member(member);
 }
 
-public fun member_add_member(group: &mut Group, user_address: address, member_cap: &MemberCap, ctx: &mut TxContext) {
+entry fun member_add_member(group: &mut Group, user_address: address, member_cap: &MemberCap, ctx: &mut TxContext) {
     member_cap::assert_cap(member_cap, object::id(group)); // check if member cap is valid for the group
     assert!(group.members.contains(ctx.sender()) && group.members.borrow(ctx.sender()).get_role() == 0, ENotAllowed); // check if holder of cap is a valid member - it might have left, been promoted, or promoted and removed
 
@@ -325,12 +325,3 @@ public fun member_add_member(group: &mut Group, user_address: address, member_ca
     member_cap::member_transfer_to_recipient(new_member_cap, member_cap, user_address);
     add_new_member(group, user_address, 0, ctx);
 }
-
-
-/*
-/// Emit a lightweight signal for bots/UIs.
-public fun emit_signal(group: &Group, _cap: &PostCap, sig_type: u8, payload: vector<u8>, ts_ms: u64) {
-    let sender = tx_context::sender(ctx);
-    signal::emit_signal(object::id(&group), sender, sig_type, payload, ts_ms);
-}
-*/
