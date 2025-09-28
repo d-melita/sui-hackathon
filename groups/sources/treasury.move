@@ -17,10 +17,18 @@ public struct Treasury has key, store {
 }
 
 public(package) fun create_treasury(initial: Coin<SUI>, ctx: &mut TxContext): Treasury {
+    let initial_amount = coin::value(&initial);
+    let initial_balance = initial.into_balance();
+    let mut holdings = table::new<address, u64>(ctx);
+    
+    // Record the initial depositor's holdings
+    let depositor = ctx.sender();
+    holdings.add(depositor, initial_amount);
+    
     Treasury {
         id: object::new(ctx),
-        balance: initial.into_balance(),
-        holdings: table::new<address, u64>(ctx),
+        balance: initial_balance,
+        holdings,
     }
 }
 
@@ -61,4 +69,9 @@ public(package) fun getUserHoldings(treasury: &Treasury, user: address): u64 {
     } else {
         treasury.holdings[user]
     }
+}
+
+/// Get the total balance in the treasury
+public fun get_total_balance(treasury: &Treasury): u64 {
+    treasury.balance.value()
 }
