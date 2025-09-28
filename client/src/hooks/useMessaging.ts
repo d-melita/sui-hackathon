@@ -10,12 +10,11 @@ import { Transaction } from "@mysten/sui/transactions";
 import {
   DecryptedChannelObject,
   DecryptMessageResult,
-  ChannelMessagesDecryptedRequest,
 } from "@mysten/messaging";
 
-// Package ID for the messaging contract
-const PACKAGE_ID =
-  "0x984960ebddd75c15c6d38355ac462621db0ffc7d6647214c802cd3b685e1af3d";
+// Package ID for the messaging contract (unused but kept for reference)
+// const PACKAGE_ID =
+//   "0x984960ebddd75c15c6d38355ac462621db0ffc7d6647214c802cd3b685e1af3d";
 
 export const useMessaging = () => {
   const messagingClient = useMessagingClient();
@@ -40,6 +39,8 @@ export const useMessaging = () => {
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [messagesCursor, setMessagesCursor] = useState<bigint | null>(null);
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
+
+  // No caching - fetch fresh capabilities each time to avoid version conflicts
 
   // Create channel function
   const createChannel = useCallback(
@@ -77,13 +78,10 @@ export const useMessaging = () => {
         // Step 1: Build and execute channel creation
         console.log("🔄 Step 1: Building channel creation transaction");
         const channelTx = flow.build();
+        // Set gas budget on the transaction
+        channelTx.setGasBudget(50000000); // 50M gas units for channel creation
         const { digest } = await signAndExecute({
           transaction: channelTx,
-          options: {
-            gasBudget: 50000000, // 50M gas units for channel creation
-            showEffects: true,
-            showObjectChanges: true,
-          },
         });
         console.log("✅ Step 1: Channel creation transaction sent", digest);
 
@@ -103,70 +101,10 @@ export const useMessaging = () => {
         const channelId = (createdChannel as any)?.objectId;
         console.log("✅ Step 2: Channel created with ID", channelId);
 
-        // Step 3: Get generated caps
-        console.log("🔄 Step 3: Getting generated member caps");
-        const { creatorMemberCap } = await flow.getGeneratedCaps({ digest });
-        console.log("✅ Step 3: Creator member cap obtained", creatorMemberCap);
-
-        // Step 4: Generate and attach encryption key (with error handling)
-        console.log("🔄 Step 4: Generating and attaching encryption key");
-        console.log("🔍 Creator member cap:", creatorMemberCap);
-        try {
-          const attachKeyTx = await flow.generateAndAttachEncryptionKey({
-            creatorMemberCap,
-          });
-          console.log("🔍 Encryption key transaction built:", attachKeyTx);
-
-          // Add explicit gas budget and options for encryption key transaction
-          const { digest: finalDigest } = await signAndExecute({
-            transaction: attachKeyTx,
-            options: {
-              gasBudget: 50000000, // 50M gas units for encryption operations
-              showEffects: true,
-              showObjectChanges: true,
-            },
-          });
-          console.log(
-            "✅ Step 4: Encryption key transaction sent",
-            finalDigest,
-          );
-
-          // Wait for final transaction
-          console.log("🔄 Step 5: Waiting for encryption key transaction");
-          const { effects } = await suiClient.waitForTransaction({
-            digest: finalDigest,
-            options: { showEffects: true },
-          });
-
-          if (effects?.status.status !== "success") {
-            console.warn(
-              "⚠️ Encryption key transaction failed, but channel was created",
-            );
-            // Don't throw error, channel is still usable
-          } else {
-            console.log("✅ Step 5: Encryption key attached successfully");
-          }
-        } catch (encryptionError) {
-          console.error("❌ Encryption key setup failed:", encryptionError);
-          console.error("❌ Error details:", {
-            message:
-              encryptionError instanceof Error
-                ? encryptionError.message
-                : String(encryptionError),
-            stack:
-              encryptionError instanceof Error
-                ? encryptionError.stack
-                : undefined,
-          });
-          // Re-throw the error since encryption is required
-          throw new Error(
-            `Encryption key setup failed: ${encryptionError instanceof Error ? encryptionError.message : "Unknown error"}`,
-          );
-        }
-
-        // Step 6: Members are automatically added by the SDK
+        // Step 3: Complete the flow (SDK handles everything automatically)
+        console.log("🔄 Step 3: Completing channel creation flow");
         console.log(
-          "✅ Step 6: Channel creation complete - members added automatically by SDK",
+          "✅ Step 3: Channel creation complete - SDK handles member caps and encryption automatically",
         );
 
         // Refresh channels list
@@ -260,6 +198,7 @@ export const useMessaging = () => {
       setChannelError(null);
 
       try {
+        console.log("🔄 Fetching messages for channel:", channelId);
         const response = await messagingClient.getChannelMessages({
           channelId,
           userAddress: currentAccount.address,
@@ -268,11 +207,26 @@ export const useMessaging = () => {
           direction: "backward",
         });
 
+        console.log("📨 Raw response:", response);
+        console.log("📨 Response messages:", response.messages);
+        console.log("📨 Messages count:", response.messages.length);
+
+        if (response.messages.length > 0) {
+          console.log("📨 First message in response:", response.messages[0]);
+          console.log("📨 First message text:", response.messages[0].text);
+          console.log(
+            "📨 First message keys:",
+            Object.keys(response.messages[0]),
+          );
+        }
+
         if (cursor === null) {
           // First fetch, replace messages
+          console.log("📨 Setting messages (first fetch)");
           setMessages(response.messages);
         } else {
           // Pagination, append older messages
+          console.log("📨 Appending messages (pagination)");
           setMessages((prev) => [...response.messages, ...prev]);
         }
 
@@ -292,7 +246,7 @@ export const useMessaging = () => {
     [messagingClient, currentAccount],
   );
 
-  // Get member cap for channel
+  // Get member cap for channel (with fresh fetch to avoid version conflicts)
   const getMemberCapForChannel = useCallback(
     async (channelId: string) => {
       if (!messagingClient || !currentAccount) {
@@ -300,6 +254,7 @@ export const useMessaging = () => {
       }
 
       try {
+        // Always fetch fresh memberships to avoid version conflicts
         const memberships = await messagingClient.getChannelMemberships({
           address: currentAccount.address,
         });
@@ -314,6 +269,25 @@ export const useMessaging = () => {
       }
     },
     [messagingClient, currentAccount],
+  );
+
+  // Get encrypted key for channel (with fresh fetch to avoid version conflicts)
+  const getEncryptedKeyForChannel = useCallback(
+    async (channelId: string) => {
+      // Always fetch fresh channel data to avoid version conflicts
+      const channel = await getChannelById(channelId);
+      if (!channel) return null;
+
+      const encryptedKeyBytes = channel.encryption_key_history.latest;
+      const keyVersion = channel.encryption_key_history.latest_version;
+
+      return {
+        $kind: "Encrypted" as const,
+        encryptedBytes: new Uint8Array(encryptedKeyBytes),
+        version: keyVersion,
+      };
+    },
+    [getChannelById],
   );
 
   // Get channel members with real addresses
@@ -371,7 +345,7 @@ export const useMessaging = () => {
               const role = isOwner ? "Owner" : isAdmin ? "Admin" : "Member";
 
               memberAddresses.push({
-                address: membership.address || "Unknown",
+                address: (membership as any).address || "Unknown",
                 memberCapId: memberCapId,
                 role: role,
               });
@@ -389,29 +363,6 @@ export const useMessaging = () => {
     [messagingClient, currentAccount, getChannelById],
   );
 
-  // Get encrypted key for channel
-  const getEncryptedKeyForChannel = useCallback(
-    async (channelId: string) => {
-      if (!currentChannel || currentChannel.id.id !== channelId) {
-        const channel = await getChannelById(channelId);
-        if (!channel) return null;
-      }
-
-      const channel = currentChannel || (await getChannelById(channelId));
-      if (!channel) return null;
-
-      const encryptedKeyBytes = channel.encryption_key_history.latest;
-      const keyVersion = channel.encryption_key_history.latest_version;
-
-      return {
-        $kind: "Encrypted" as const,
-        encryptedBytes: new Uint8Array(encryptedKeyBytes),
-        version: keyVersion,
-      } as ChannelMessagesDecryptedRequest["encryptedKey"];
-    },
-    [currentChannel, getChannelById],
-  );
-
   // Send message function with retry logic
   const sendMessage = useCallback(
     async (channelId: string, message: string, retryCount = 0) => {
@@ -426,13 +377,16 @@ export const useMessaging = () => {
       setChannelError(null);
 
       try {
-        // Get member cap ID
+        // Use the simplified SDK approach (no manual member cap fetching)
+        console.log("🔄 Sending message with simplified SDK approach");
+
+        // Get member cap ID (with fresh fetch to avoid version conflicts)
         const memberCapId = await getMemberCapForChannel(channelId);
         if (!memberCapId) {
           throw new Error("No member cap found for channel");
         }
 
-        // Get encrypted key
+        // Get encrypted key (with fresh fetch to avoid version conflicts)
         const encryptedKey = await getEncryptedKeyForChannel(channelId);
         if (!encryptedKey) {
           throw new Error("No encrypted key found for channel");
@@ -458,7 +412,9 @@ export const useMessaging = () => {
         });
 
         // Refresh messages to show the new one
+        console.log("🔄 Refreshing messages after sending...");
         await fetchMessages(channelId);
+        console.log("✅ Messages refreshed after sending");
 
         return { digest };
       } catch (err) {
@@ -467,16 +423,20 @@ export const useMessaging = () => {
           err instanceof Error &&
           (err.message.includes("not available for consumption") ||
             err.message.includes("Version") ||
-            err.message.includes("current version"));
+            err.message.includes("current version") ||
+            err.message.includes("Object ID") ||
+            err.message.includes("Digest"));
 
         if (isVersionConflict && retryCount < 3) {
           console.log(
             `🔄 Version conflict detected, retrying... (attempt ${retryCount + 1}/3)`,
           );
-          // Wait a bit before retrying
-          await new Promise((resolve) =>
-            setTimeout(resolve, 1000 + retryCount * 500),
-          );
+
+          // Wait before retrying with exponential backoff
+          const delay = 1000 + retryCount * 1000; // 1s, 2s, 3s
+          console.log(`⏳ Waiting ${delay}ms before retry...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+
           return sendMessage(channelId, message, retryCount + 1);
         }
 

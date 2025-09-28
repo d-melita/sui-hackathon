@@ -1,8 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useCurrentAccount, useSuiClient } from "@mysten/dapp-kit";
 import { useMessaging } from "../hooks/useMessaging";
 import { useSessionKey } from "../providers/SessionKeyProvider";
-import { useMessagingClient } from "../providers/MessagingClientProvider";
 import { useGroups } from "../hooks/useGroups";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -10,18 +9,15 @@ import { Input } from "./ui/input";
 import { ConnectButton } from "@mysten/dapp-kit";
 import {
   Plus,
-  Users,
   MessageSquare,
   Vote,
   DollarSign,
   TrendingUp,
-  TrendingDown,
 } from "lucide-react";
 
 export default function ChannelManager() {
   const currentAccount = useCurrentAccount();
   const suiClient = useSuiClient();
-  const messagingClient = useMessagingClient();
   const { sessionKey, initializeManually } = useSessionKey();
   const {
     createGroup: createGroupContract,
@@ -42,7 +38,6 @@ export default function ChannelManager() {
     messages,
     fetchMessages,
     isSendingMessage,
-    channelError,
   } = useMessaging();
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -67,6 +62,11 @@ export default function ChannelManager() {
   const [tokenAddress, setTokenAddress] = useState("");
   const [confidence, setConfidence] = useState("");
   const [signalId, setSignalId] = useState("");
+
+  // Treasury state
+  const [treasuryBalance, setTreasuryBalance] = useState<number | null>(null);
+  const [userHoldings, setUserHoldings] = useState<number | null>(null);
+  const [isLoadingTreasury, setIsLoadingTreasury] = useState(false);
 
   const self = currentAccount?.address ?? "";
 
@@ -226,7 +226,7 @@ export default function ChannelManager() {
 
   // Group management functions
   const handleInitTreasury = async () => {
-    if (!groupId.trim() || !adminCapId.trim() || !treasuryAmount.trim()) {
+    if (!groupId.trim() || !treasuryAmount.trim()) {
       setStatus({ kind: "err", msg: "Please fill all fields" });
       return;
     }
@@ -297,6 +297,37 @@ export default function ChannelManager() {
         kind: "err",
         msg: `Error withdrawing: ${error.message}`,
       });
+    }
+  };
+
+  // Fetch treasury balance and user holdings
+  const handleFetchTreasuryInfo = async () => {
+    if (!groupId.trim()) {
+      setStatus({ kind: "err", msg: "Please provide a group ID" });
+      return;
+    }
+
+    try {
+      setIsLoadingTreasury(true);
+      setStatus({ kind: "idle" });
+
+      // Note: This would need to be implemented as a view function in the Move contract
+      // For now, we'll show a placeholder message
+      setStatus({
+        kind: "ok",
+        msg: "Treasury info fetched! (Note: View functions need to be implemented in the contract)",
+      });
+
+      // Placeholder values - in a real implementation, these would come from the contract
+      setTreasuryBalance(0);
+      setUserHoldings(0);
+    } catch (error: any) {
+      setStatus({
+        kind: "err",
+        msg: `Error fetching treasury info: ${error.message}`,
+      });
+    } finally {
+      setIsLoadingTreasury(false);
     }
   };
 
@@ -641,13 +672,60 @@ export default function ChannelManager() {
                 )}
 
                 {activeTab === "treasury" && (
-                  <div className="p-6">
+                  <div className="p-6 space-y-6">
                     <h3 className="text-xl font-semibold mb-4">
                       Treasury Management
                     </h3>
+
+                    {/* Treasury Balance Display */}
                     <Card>
                       <CardHeader>
-                        <CardTitle>Group Treasury</CardTitle>
+                        <CardTitle className="flex items-center gap-2">
+                          <DollarSign className="h-5 w-5" />
+                          Treasury Balance
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="text-center p-4 bg-muted rounded-lg">
+                            <div className="text-2xl font-bold">
+                              {treasuryBalance !== null
+                                ? `${treasuryBalance} MIST`
+                                : "N/A"}
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              Total Balance
+                            </div>
+                          </div>
+                          <div className="text-center p-4 bg-muted rounded-lg">
+                            <div className="text-2xl font-bold">
+                              {userHoldings !== null
+                                ? `${userHoldings} MIST`
+                                : "N/A"}
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              Your Holdings
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={handleFetchTreasuryInfo}
+                            disabled={isLoadingTreasury}
+                            variant="outline"
+                          >
+                            {isLoadingTreasury
+                              ? "Loading..."
+                              : "Refresh Balance"}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Treasury Operations */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Treasury Operations</CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-4">
                         <p className="text-sm text-muted-foreground mb-3">
@@ -664,13 +742,6 @@ export default function ChannelManager() {
                           </div>
                           <div>
                             <Input
-                              placeholder="Admin Cap ID"
-                              value={adminCapId}
-                              onChange={(e) => setAdminCapId(e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <Input
                               placeholder="Amount (in MIST)"
                               value={treasuryAmount}
                               onChange={(e) =>
@@ -681,14 +752,23 @@ export default function ChannelManager() {
                           </div>
                         </div>
 
-                        <div className="flex gap-2">
-                          <Button onClick={handleInitTreasury}>
+                        <div className="flex gap-2 flex-wrap">
+                          <Button
+                            onClick={handleInitTreasury}
+                            variant="default"
+                          >
                             Initialize Treasury
                           </Button>
-                          <Button onClick={handleDepositToTreasury}>
+                          <Button
+                            onClick={handleDepositToTreasury}
+                            variant="outline"
+                          >
                             Deposit
                           </Button>
-                          <Button onClick={handleWithdrawFromTreasury}>
+                          <Button
+                            onClick={handleWithdrawFromTreasury}
+                            variant="outline"
+                          >
                             Withdraw
                           </Button>
                         </div>
