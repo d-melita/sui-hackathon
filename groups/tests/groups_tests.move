@@ -311,7 +311,7 @@ fun test_init_treasury() {
     // Deposit additional 500 SUI into the treasury
     let ctx = test_scenario::ctx(&mut scenario);
     let deposit_funds = coin::mint_for_testing<SUI>(500, ctx);
-    group::deposit_to_treasury(&mut group, &admin_cap, deposit_funds, ctx);
+    group::deposit_to_treasury(&mut group, deposit_funds, ctx);
     test_scenario::next_tx(&mut scenario, alice);
 
     let treasury = group::get_treasury(&group).borrow();
@@ -319,7 +319,7 @@ fun test_init_treasury() {
 
     // Withdraw 400 SUI from the treasury
     let ctx = test_scenario::ctx(&mut scenario);
-    group::withdraw_from_treasury(&mut group, &admin_cap, 400, ctx);
+    group::withdraw_from_treasury(&mut group, 400, ctx);
     test_scenario::next_tx(&mut scenario, alice);
 
     let treasury = group::get_treasury(&group).borrow();
@@ -363,7 +363,7 @@ fun test_deposit_to_treasury() {
     // Test multiple deposits
     let ctx = test_scenario::ctx(&mut scenario);
     let deposit1 = coin::mint_for_testing<SUI>(500, ctx);
-    group::deposit_to_treasury(&mut group, &admin_cap, deposit1, ctx);
+    group::deposit_to_treasury(&mut group, deposit1, ctx);
     test_scenario::next_tx(&mut scenario, alice);
 
     let treasury = group::get_treasury(&group).borrow();
@@ -372,7 +372,7 @@ fun test_deposit_to_treasury() {
     // Second deposit
     let ctx = test_scenario::ctx(&mut scenario);
     let deposit2 = coin::mint_for_testing<SUI>(300, ctx);
-    group::deposit_to_treasury(&mut group, &admin_cap, deposit2, ctx);
+    group::deposit_to_treasury(&mut group,  deposit2, ctx);
     test_scenario::next_tx(&mut scenario, alice);
 
     let treasury = group::get_treasury(&group).borrow();
@@ -381,7 +381,7 @@ fun test_deposit_to_treasury() {
     // Third deposit
     let ctx = test_scenario::ctx(&mut scenario);
     let deposit3 = coin::mint_for_testing<SUI>(200, ctx);
-    group::deposit_to_treasury(&mut group, &admin_cap, deposit3, ctx);
+    group::deposit_to_treasury(&mut group, deposit3, ctx);
 
     let treasury = group::get_treasury(&group).borrow();
     assert!(treasury::get_total_balance(treasury) == 2000, 100);
@@ -421,7 +421,7 @@ fun test_withdraw_from_treasury() {
 
     // Test first withdrawal
     let ctx = test_scenario::ctx(&mut scenario);
-    group::withdraw_from_treasury(&mut group, &admin_cap, 500, ctx);
+    group::withdraw_from_treasury(&mut group, 500, ctx);
     test_scenario::next_tx(&mut scenario, alice);
 
     let treasury = group::get_treasury(&group).borrow();
@@ -430,7 +430,7 @@ fun test_withdraw_from_treasury() {
 
     // Test second withdrawal
     let ctx = test_scenario::ctx(&mut scenario);
-    group::withdraw_from_treasury(&mut group, &admin_cap, 300, ctx);
+    group::withdraw_from_treasury(&mut group, 300, ctx);
     test_scenario::next_tx(&mut scenario, alice);
 
     let treasury = group::get_treasury(&group).borrow();
@@ -439,7 +439,7 @@ fun test_withdraw_from_treasury() {
 
     // Test third withdrawal
     let ctx = test_scenario::ctx(&mut scenario);
-    group::withdraw_from_treasury(&mut group, &admin_cap, 700, ctx);
+    group::withdraw_from_treasury(&mut group, 700, ctx);
 
     let treasury = group::get_treasury(&group).borrow();
     assert!(treasury::get_total_balance(treasury) == 500, 100);
