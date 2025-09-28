@@ -2,7 +2,7 @@
 
 [move]
 version = 3
-manifest_digest = "6929529496AA89868348C08F516DF0D146022D195F79CDFE8D9CC6FDA3A2A76F"
+manifest_digest = "E4413ABDBEDEEE28B25F063BEC05F8E4DAE4AE506FC2C1A1C9945AFA47318711"
 deps_digest = "3C4103934B1E040BB6B23F1D610B4EF9F2F1166A50A104EADCF77467C004C600"
 dependencies = [
   { id = "Sui", name = "Sui" },
@@ -23,14 +23,14 @@ dependencies = [
 
 [[move.package]]
 id = "seal"
-source = { local = "seal/move/seal" }
+source = { git = "https://github.com/MystenLabs/seal.git", rev = "main", subdir = "move/seal" }
 
 dependencies = [
   { id = "Sui", name = "Sui" },
 ]
 
 [move.toolchain-version]
-compiler-version = "1.37.3"
+compiler-version = "1.57.0"
 edition = "2024.beta"
 flavor = "sui"
 
