@@ -3,6 +3,7 @@ import { useGroupsManager } from "../hooks/useGroupsManager";
 import { useGroups } from "../hooks/useGroups";
 import { useMessaging } from "../hooks/useMessaging";
 import { useSessionKey } from "../providers/SessionKeyProvider";
+import { useSuiClient } from "@mysten/dapp-kit";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
@@ -10,6 +11,7 @@ import { ConnectButton } from "@mysten/dapp-kit";
 import { Plus, Users, DollarSign, TrendingUp, Vote } from "lucide-react";
 
 export default function GroupsManager() {
+  const suiClient = useSuiClient();
   const {
     groups,
     selectedGroupId,
@@ -53,8 +55,6 @@ export default function GroupsManager() {
   const [showCreateGroup, setShowCreateGroup] = useState(false);
 
   // Group management state
-  const [groupId, setGroupId] = useState("");
-  const [adminCapId, setAdminCapId] = useState("");
   const [treasuryAmount, setTreasuryAmount] = useState("");
   const [tokenAddress, setTokenAddress] = useState("");
   const [confidence, setConfidence] = useState("");
@@ -62,8 +62,6 @@ export default function GroupsManager() {
 
   // Treasury state
   const [treasuryBalance, setTreasuryBalance] = useState<number | null>(null);
-  const [userHoldings, setUserHoldings] = useState<number | null>(null);
-  const [isLoadingTreasury, setIsLoadingTreasury] = useState(false);
 
   // Chat interface state
   const [showChat, setShowChat] = useState(false);
@@ -73,11 +71,6 @@ export default function GroupsManager() {
   const [showChannelForm, setShowChannelForm] = useState(false);
   const [memberAddresses, setMemberAddresses] = useState("");
   const [isCreatingChannel, setIsCreatingChannel] = useState(false);
-
-  // Add member state
-  const [showAddMemberForm, setShowAddMemberForm] = useState(false);
-  const [newMemberAddress, setNewMemberAddress] = useState("");
-  const [isAddingMember, setIsAddingMember] = useState(false);
 
   const selectedGroup = groups.find(
     (group) => group.data?.objectId === selectedGroupId,
@@ -152,25 +145,31 @@ export default function GroupsManager() {
     try {
       console.log("💬 Opening chat for channel:", groupChatId);
       setShowChat(true);
-
-      // Load blockchain messages
-      console.log("🔄 Loading blockchain messages...");
+      // Load messages for the chat
+      console.log("🔄 Loading messages...");
       await fetchMessages(groupChatId);
-      console.log("✅ Blockchain messages loaded:", messages.length);
-
-      console.log("✅ Chat opened successfully");
+      console.log("✅ Messages loaded:", messages);
+      console.log("✅ Messages length:", messages.length);
+      if (messages.length > 0) {
+        console.log("✅ First message details:", {
+          text: messages[0].text,
+          sender: messages[0].sender,
+          createdAtMs: messages[0].createdAtMs,
+          allKeys: Object.keys(messages[0]),
+        });
+      }
     } catch (error: any) {
       console.error("❌ Error loading chat:", error);
       setStatus({ kind: "err", msg: `Failed to load chat: ${error.message}` });
     }
   };
 
-  // Handle sending blockchain messages
+  // Handle sending messages
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !groupChatId) return;
 
     try {
-      console.log("📤 Sending blockchain message:", newMessage.trim());
+      console.log("📤 Sending message:", newMessage.trim());
       console.log("📤 To channel:", groupChatId);
 
       const result = await sendMessage(groupChatId, newMessage.trim());
@@ -243,18 +242,41 @@ export default function GroupsManager() {
         msg: `Found admin capability: ${fetchedAdminCapId.slice(0, 8)}...`,
       });
 
-      // Step 1: Skip group contract member addition due to object versioning issues
-      console.log(
-        "🔥 Step 1: Skipping group contract member addition due to object versioning issues...",
-      );
-      console.log(
-        "🔥 Creating chat channel directly with provided addresses...",
-      );
+      // Step 1: Add members to the group contract
+      console.log("🔥 Step 1: Adding members to group contract...");
+      for (let i = 0; i < addresses.length; i++) {
+        const address = addresses[i];
+        console.log(
+          `🔥 Adding member ${i + 1}/${addresses.length}: ${address}`,
+        );
 
+        const addResult = await addMember(groupId, fetchedAdminCapId, address);
+        console.log(`✅ Member ${i + 1} added to group:`, addResult.digest);
+
+        setStatus({
+          kind: "ok",
+          msg: `Added member ${i + 1}/${addresses.length} to group. Transaction: ${addResult.digest}`,
+        });
+
+        // Add delay between member additions to prevent version conflicts
+        if (i < addresses.length - 1) {
+          console.log("⏳ Waiting 10 seconds before adding next member...");
+          setStatus({
+            kind: "ok",
+            msg: `Waiting 10 seconds before adding next member... (${i + 1}/${addresses.length} completed)`,
+          });
+          await new Promise((resolve) => setTimeout(resolve, 10000));
+        }
+      }
+
+      // Step 2: Create the channel with all members
+      console.log("🔥 Step 2: Creating channel with members...");
+      console.log("⏳ Waiting 2 seconds before creating channel...");
       setStatus({
         kind: "ok",
-        msg: "Creating chat channel directly with provided addresses...",
+        msg: "All members added to group. Waiting 2 seconds before creating channel...",
       });
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       const channelResult = await createChannel(addresses);
 
@@ -274,7 +296,7 @@ export default function GroupsManager() {
 
         setStatus({
           kind: "ok",
-          msg: `🎉 Group chat created successfully! Created encrypted channel with ${addresses.length} members.`,
+          msg: `🎉 Group chat created successfully! Added ${addresses.length} members to group and created encrypted channel.`,
         });
 
         // Close the form and refresh
@@ -296,81 +318,32 @@ export default function GroupsManager() {
     }
   };
 
-  // Handle adding a single member to the group
-  const handleAddMember = async () => {
-    if (!selectedGroup?.data?.objectId || !newMemberAddress.trim()) {
-      setStatus({ kind: "err", msg: "Please provide a member address" });
-      return;
-    }
-
-    setIsAddingMember(true);
-    setStatus({ kind: "idle" });
-
-    try {
-      const groupId = selectedGroup.data.objectId;
-      const address = newMemberAddress.trim();
-
-      console.log("🔥 Adding member to group...");
-      console.log("🔥 Group ID:", groupId);
-      console.log("🔥 Member address:", address);
-
-      // Fetch admin capability
-      console.log("🔥 Fetching admin capability...");
-      const fetchedAdminCapId = await getAdminCapabilities(groupId);
-
-      if (!fetchedAdminCapId) {
-        setStatus({
-          kind: "err",
-          msg: "No admin capability found for this group. Make sure you're the group creator or have admin permissions.",
-        });
-        setIsAddingMember(false);
-        return;
-      }
-
-      console.log("✅ Found admin capability:", fetchedAdminCapId);
-      setStatus({
-        kind: "ok",
-        msg: `Found admin capability: ${fetchedAdminCapId.slice(0, 8)}...`,
-      });
-
-      // Add the member to the group
-      console.log("🔥 Adding member to group contract...");
-      const addResult = await addMember(groupId, fetchedAdminCapId, address);
-      console.log("✅ Member added to group:", addResult.digest);
-
-      setStatus({
-        kind: "ok",
-        msg: `✅ Member added to group successfully! Transaction: ${addResult.digest}`,
-      });
-
-      // Close the form and clear the input
-      setShowAddMemberForm(false);
-      setNewMemberAddress("");
-
-      // Refresh groups to show updated member list
-      setTimeout(() => {
-        // You might want to add a refresh function here
-        console.log("🔄 Member added, group should be refreshed");
-      }, 2000);
-    } catch (error: any) {
-      console.error("❌ Error adding member:", error);
-      setStatus({ kind: "err", msg: `Error adding member: ${error.message}` });
-    } finally {
-      setIsAddingMember(false);
-    }
-  };
-
   // Group management functions
   const handleInitTreasury = async () => {
-    if (!groupId.trim() || !treasuryAmount.trim()) {
-      setStatus({ kind: "err", msg: "Please fill all fields" });
+    if (!selectedGroupId || !treasuryAmount.trim()) {
+      setStatus({
+        kind: "err",
+        msg: "Please select a group and fill all fields",
+      });
       return;
     }
 
     try {
       setStatus({ kind: "idle" });
+
+      // Get admin capability for the group
+      const adminCapId = await getAdminCapabilities(selectedGroupId);
+
+      if (!adminCapId) {
+        setStatus({
+          kind: "err",
+          msg: "No admin capability found for this group. Make sure you have admin permissions.",
+        });
+        return;
+      }
+
       const result = await initTreasury(
-        groupId,
+        selectedGroupId,
         adminCapId,
         parseInt(treasuryAmount),
       );
@@ -387,16 +360,19 @@ export default function GroupsManager() {
   };
 
   const handleDepositToTreasury = async () => {
-    if (!groupId.trim() || !adminCapId.trim() || !treasuryAmount.trim()) {
-      setStatus({ kind: "err", msg: "Please fill all fields" });
+    if (!selectedGroupId || !treasuryAmount.trim()) {
+      setStatus({
+        kind: "err",
+        msg: "Please select a group and fill all fields",
+      });
       return;
     }
 
     try {
       setStatus({ kind: "idle" });
+
       const result = await depositToTreasury(
-        groupId,
-        adminCapId,
+        selectedGroupId,
         parseInt(treasuryAmount),
       );
       setStatus({
@@ -412,16 +388,27 @@ export default function GroupsManager() {
   };
 
   const handleWithdrawFromTreasury = async () => {
-    if (!groupId.trim() || !adminCapId.trim() || !treasuryAmount.trim()) {
-      setStatus({ kind: "err", msg: "Please fill all fields" });
+    if (!selectedGroupId || !treasuryAmount.trim()) {
+      setStatus({
+        kind: "err",
+        msg: "Please select a group and fill all fields",
+      });
       return;
     }
 
     try {
       setStatus({ kind: "idle" });
+
+      console.log(
+        "🔍 FRONTEND WITHDRAW DEBUG - Calling withdrawFromTreasury with:",
+      );
+      console.log("🔍 - selectedGroupId:", selectedGroupId);
+      console.log("🔍 - treasuryAmount (raw):", treasuryAmount);
+      console.log("🔍 - treasuryAmount (parsed):", parseInt(treasuryAmount));
+      console.log("🔍 - treasuryAmount type:", typeof parseInt(treasuryAmount));
+
       const result = await withdrawFromTreasury(
-        groupId,
-        adminCapId,
+        selectedGroupId,
         parseInt(treasuryAmount),
       );
       setStatus({
@@ -429,6 +416,7 @@ export default function GroupsManager() {
         msg: `Withdrawn from treasury! Transaction: ${result.digest}`,
       });
     } catch (error: any) {
+      console.log("🔍 FRONTEND WITHDRAW DEBUG - Error caught:", error);
       setStatus({
         kind: "err",
         msg: `Error withdrawing: ${error.message}`,
@@ -436,52 +424,108 @@ export default function GroupsManager() {
     }
   };
 
-  // Fetch treasury balance and user holdings
-  const handleFetchTreasuryInfo = async () => {
-    if (!groupId.trim()) {
-      setStatus({ kind: "err", msg: "Please provide a group ID" });
+  // Fetch treasury balance from the contract
+  const handleFetchTreasuryBalance = async () => {
+    if (!selectedGroupId) {
+      setStatus({ kind: "err", msg: "Please select a group" });
       return;
     }
 
     try {
-      setIsLoadingTreasury(true);
       setStatus({ kind: "idle" });
 
-      // Note: This would need to be implemented as a view function in the Move contract
-      // For now, we'll show a placeholder message
-      setStatus({
-        kind: "ok",
-        msg: "Treasury info fetched! (Note: View functions need to be implemented in the contract)",
+      // Get the group object to read treasury balance
+      const groupObject = await suiClient.getObject({
+        id: selectedGroupId,
+        options: { showContent: true },
       });
 
-      // Placeholder values - in a real implementation, these would come from the contract
-      setTreasuryBalance(0);
-      setUserHoldings(0);
+      console.log("🔍 Group object:", groupObject);
+
+      if (groupObject.data?.content && "fields" in groupObject.data.content) {
+        const fields = groupObject.data.content.fields as any;
+        console.log("🔍 Group fields:", fields);
+
+        // Check if treasury exists
+        if (fields.treasury && fields.treasury.fields) {
+          const treasuryFields = fields.treasury.fields;
+          console.log("🔍 Treasury fields:", treasuryFields);
+
+          // Get total balance from treasury - the structure might be different
+          let totalBalance = 0;
+          if (treasuryFields.balance) {
+            // Try different possible structures
+            if (
+              treasuryFields.balance.fields &&
+              treasuryFields.balance.fields.value
+            ) {
+              totalBalance = treasuryFields.balance.fields.value;
+            } else if (treasuryFields.balance.value) {
+              totalBalance = treasuryFields.balance.value;
+            } else if (typeof treasuryFields.balance === "string") {
+              totalBalance = parseInt(treasuryFields.balance);
+            }
+          }
+
+          console.log("💰 Total balance found:", totalBalance);
+          // Convert MIST to SUI (1 SUI = 10^9 MIST)
+          const balanceInSui = totalBalance / 1000000000;
+          setTreasuryBalance(balanceInSui);
+
+          setStatus({
+            kind: "ok",
+            msg: `Treasury balance: ${balanceInSui.toFixed(9)} SUI`,
+          });
+        } else {
+          setTreasuryBalance(0);
+          setStatus({
+            kind: "ok",
+            msg: "No treasury found for this group",
+          });
+        }
+      } else {
+        setTreasuryBalance(0);
+        setStatus({
+          kind: "err",
+          msg: "Could not fetch group data",
+        });
+      }
     } catch (error: any) {
+      console.error("❌ Error fetching treasury balance:", error);
       setStatus({
         kind: "err",
-        msg: `Error fetching treasury info: ${error.message}`,
+        msg: `Error fetching treasury balance: ${error.message}`,
       });
-    } finally {
-      setIsLoadingTreasury(false);
+      setTreasuryBalance(0);
     }
   };
 
+  // Fetch user's holdings in the treasury
+
   const handleCreateSignal = async (bullish: boolean) => {
-    if (
-      !groupId.trim() ||
-      !adminCapId.trim() ||
-      !tokenAddress.trim() ||
-      !confidence.trim()
-    ) {
-      setStatus({ kind: "err", msg: "Please fill all fields" });
+    if (!selectedGroupId || !tokenAddress.trim() || !confidence.trim()) {
+      setStatus({
+        kind: "err",
+        msg: "Please select a group and fill all fields",
+      });
       return;
     }
 
     try {
       setStatus({ kind: "idle" });
+
+      // Get admin capability for the group
+      const adminCapId = await getAdminCapabilities(selectedGroupId);
+      if (!adminCapId) {
+        setStatus({
+          kind: "err",
+          msg: "No admin capability found for this group. Make sure you have admin permissions.",
+        });
+        return;
+      }
+
       const result = await createSignal(
-        groupId,
+        selectedGroupId,
         adminCapId,
         tokenAddress,
         bullish,
@@ -500,14 +544,17 @@ export default function GroupsManager() {
   };
 
   const handleUpvoteSignal = async () => {
-    if (!groupId.trim() || !signalId.trim()) {
-      setStatus({ kind: "err", msg: "Please fill all fields" });
+    if (!selectedGroupId || !signalId.trim()) {
+      setStatus({
+        kind: "err",
+        msg: "Please select a group and fill all fields",
+      });
       return;
     }
 
     try {
       setStatus({ kind: "idle" });
-      const result = await upvoteSignal(groupId, signalId);
+      const result = await upvoteSignal(selectedGroupId, signalId);
       setStatus({
         kind: "ok",
         msg: `Signal upvoted! Transaction: ${result.digest}`,
@@ -521,14 +568,17 @@ export default function GroupsManager() {
   };
 
   const handleDownvoteSignal = async () => {
-    if (!groupId.trim() || !signalId.trim()) {
-      setStatus({ kind: "err", msg: "Please fill all fields" });
+    if (!selectedGroupId || !signalId.trim()) {
+      setStatus({
+        kind: "err",
+        msg: "Please select a group and fill all fields",
+      });
       return;
     }
 
     try {
       setStatus({ kind: "idle" });
-      const result = await downvoteSignal(groupId, signalId);
+      const result = await downvoteSignal(selectedGroupId, signalId);
       setStatus({
         kind: "ok",
         msg: `Signal downvoted! Transaction: ${result.digest}`,
@@ -651,7 +701,10 @@ export default function GroupsManager() {
                     <h3 className="text-xl font-semibold">Group Overview</h3>
                     <div className="flex gap-2">
                       <Button
-                        onClick={() => setShowAddMemberForm(true)}
+                        onClick={() => {
+                          // TODO: Implement add member functionality
+                          console.log("Add member clicked");
+                        }}
                         variant="outline"
                         className="flex items-center gap-2"
                       >
@@ -695,6 +748,17 @@ export default function GroupsManager() {
                     <CardContent>
                       <div className="space-y-2">
                         <p>
+                          <strong>Group ID:</strong>{" "}
+                          {selectedGroup.data?.objectId}
+                        </p>
+                        <p>
+                          <strong>Type:</strong> {selectedGroup.data?.type}
+                        </p>
+                        <p>
+                          <strong>Version:</strong>{" "}
+                          {selectedGroup.data?.version}
+                        </p>
+                        <p>
                           <strong>Chat Status:</strong>{" "}
                           {groupChatId ? (
                             <span className="text-green-600">
@@ -720,7 +784,7 @@ export default function GroupsManager() {
                     </CardContent>
                   </Card>
 
-                  {/* Blockchain Chat Interface */}
+                  {/* Chat Interface */}
                   {showChat && (
                     <Card className="mt-4">
                       <CardHeader>
@@ -744,30 +808,55 @@ export default function GroupsManager() {
                             </p>
                           ) : (
                             <div className="space-y-2">
-                              {messages.map((message, index) => (
-                                <div
-                                  key={index}
-                                  className="flex flex-col space-y-1"
-                                >
-                                  <div className="flex items-center space-x-2">
-                                    <span className="text-xs text-gray-700 font-medium">
-                                      {message.sender || "Unknown"}
-                                    </span>
-                                    <span className="text-xs text-gray-600">
-                                      {message.createdAtMs
-                                        ? new Date(
-                                            parseInt(message.createdAtMs),
-                                          ).toLocaleTimeString()
-                                        : new Date().toLocaleTimeString()}
-                                    </span>
+                              {messages.map((message, index) => {
+                                // Debug: log the message structure
+                                console.log("📨 Message structure:", message);
+                                console.log("📨 Message text:", message.text);
+                                console.log(
+                                  "📨 Message sender:",
+                                  message.sender,
+                                );
+                                console.log(
+                                  "📨 Message createdAtMs:",
+                                  message.createdAtMs,
+                                );
+                                console.log(
+                                  "📨 Message keys:",
+                                  Object.keys(message),
+                                );
+
+                                return (
+                                  <div
+                                    key={index}
+                                    className="flex flex-col space-y-1"
+                                  >
+                                    <div className="flex items-center space-x-2">
+                                      <span className="text-xs text-gray-700 font-medium">
+                                        {message.sender || "Unknown"}
+                                      </span>
+                                      <span className="text-xs text-gray-600">
+                                        {message.createdAtMs
+                                          ? new Date(
+                                              parseInt(message.createdAtMs),
+                                            ).toLocaleTimeString()
+                                          : new Date().toLocaleTimeString()}
+                                      </span>
+                                    </div>
+                                    <div className="bg-white p-2 rounded-lg shadow-sm">
+                                      <p className="text-sm text-black">
+                                        {message.text || "No content"}
+                                      </p>
+                                      {/* Debug: Show raw message if text is empty */}
+                                      {!message.text && (
+                                        <div className="text-xs text-black mt-1">
+                                          Debug:{" "}
+                                          {JSON.stringify(message, null, 2)}
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
-                                  <div className="bg-white p-2 rounded-lg shadow-sm">
-                                    <p className="text-sm text-black">
-                                      {message.text || "No content"}
-                                    </p>
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -787,11 +876,7 @@ export default function GroupsManager() {
                           />
                           <Button
                             onClick={handleSendMessage}
-                            disabled={
-                              !newMessage.trim() ||
-                              isSendingMessage ||
-                              !groupChatId
-                            }
+                            disabled={!newMessage.trim() || isSendingMessage}
                           >
                             {isSendingMessage ? "Sending..." : "Send"}
                           </Button>
@@ -858,72 +943,14 @@ export default function GroupsManager() {
                       </CardContent>
                     </Card>
                   )}
-
-                  {/* Add Member Form */}
-                  {showAddMemberForm && (
-                    <Card className="mt-4">
-                      <CardHeader>
-                        <CardTitle className="flex items-center justify-between">
-                          <span>Add Member to Group</span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setShowAddMemberForm(false);
-                              setNewMemberAddress("");
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-sm font-medium mb-2">
-                              Member Address
-                            </label>
-                            <Input
-                              placeholder="0x123..."
-                              value={newMemberAddress}
-                              onChange={(e) =>
-                                setNewMemberAddress(e.target.value)
-                              }
-                              className="w-full"
-                            />
-                            <p className="text-xs text-gray-500 mt-1">
-                              Enter the Sui address of the member you want to
-                              add to this group. Your admin capability will be
-                              automatically detected and used to add the member.
-                            </p>
-                          </div>
-
-                          <div className="flex gap-2">
-                            <Button
-                              onClick={handleAddMember}
-                              disabled={
-                                !newMemberAddress.trim() || isAddingMember
-                              }
-                              className="flex-1"
-                            >
-                              {isAddingMember
-                                ? "Adding Member..."
-                                : "Add Member"}
-                            </Button>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
                 </div>
               )}
 
               {activeTab === "treasury" && (
-                <div className="p-6 space-y-6">
+                <div className="p-6">
                   <h3 className="text-xl font-semibold mb-4">
                     Treasury Management
                   </h3>
-
                   {/* Treasury Balance Display */}
                   <Card>
                     <CardHeader>
@@ -933,35 +960,23 @@ export default function GroupsManager() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="text-center p-4 bg-muted rounded-lg">
-                          <div className="text-2xl font-bold">
-                            {treasuryBalance !== null
-                              ? `${treasuryBalance} MIST`
-                              : "N/A"}
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            Total Balance
-                          </div>
+                      <div className="text-center p-4 bg-muted rounded-lg">
+                        <div className="text-2xl font-bold">
+                          {treasuryBalance !== null
+                            ? `${treasuryBalance.toFixed(9)} SUI`
+                            : "N/A"}
                         </div>
-                        <div className="text-center p-4 bg-muted rounded-lg">
-                          <div className="text-2xl font-bold">
-                            {userHoldings !== null
-                              ? `${userHoldings} MIST`
-                              : "N/A"}
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            Your Holdings
-                          </div>
+                        <div className="text-sm text-muted-foreground">
+                          Total Balance
                         </div>
                       </div>
                       <div className="flex gap-2">
                         <Button
-                          onClick={handleFetchTreasuryInfo}
-                          disabled={isLoadingTreasury}
+                          onClick={handleFetchTreasuryBalance}
                           variant="outline"
+                          className="flex-1"
                         >
-                          {isLoadingTreasury ? "Loading..." : "Refresh Balance"}
+                          Refresh Balance
                         </Button>
                       </div>
                     </CardContent>
@@ -974,13 +989,6 @@ export default function GroupsManager() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="space-y-3">
-                        <div>
-                          <Input
-                            placeholder="Group ID"
-                            value={groupId}
-                            onChange={(e) => setGroupId(e.target.value)}
-                          />
-                        </div>
                         <div>
                           <Input
                             placeholder="Amount (in MIST)"
@@ -1024,20 +1032,6 @@ export default function GroupsManager() {
                         <div className="space-y-3">
                           <div>
                             <Input
-                              placeholder="Group ID"
-                              value={groupId}
-                              onChange={(e) => setGroupId(e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <Input
-                              placeholder="Admin Cap ID"
-                              value={adminCapId}
-                              onChange={(e) => setAdminCapId(e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <Input
                               placeholder="Token Address"
                               value={tokenAddress}
                               onChange={(e) => setTokenAddress(e.target.value)}
@@ -1075,13 +1069,6 @@ export default function GroupsManager() {
                       </CardHeader>
                       <CardContent className="space-y-4">
                         <div className="space-y-3">
-                          <div>
-                            <Input
-                              placeholder="Group ID"
-                              value={groupId}
-                              onChange={(e) => setGroupId(e.target.value)}
-                            />
-                          </div>
                           <div>
                             <Input
                               placeholder="Signal ID"

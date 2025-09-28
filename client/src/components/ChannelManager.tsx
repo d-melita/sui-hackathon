@@ -63,11 +63,6 @@ export default function ChannelManager() {
   const [confidence, setConfidence] = useState("");
   const [signalId, setSignalId] = useState("");
 
-  // Treasury state
-  const [treasuryBalance, setTreasuryBalance] = useState<number | null>(null);
-  const [userHoldings, setUserHoldings] = useState<number | null>(null);
-  const [isLoadingTreasury, setIsLoadingTreasury] = useState(false);
-
   const self = currentAccount?.address ?? "";
 
   // Filter channels that have messages
@@ -226,7 +221,7 @@ export default function ChannelManager() {
 
   // Group management functions
   const handleInitTreasury = async () => {
-    if (!groupId.trim() || !treasuryAmount.trim()) {
+    if (!groupId.trim() || !adminCapId.trim() || !treasuryAmount.trim()) {
       setStatus({ kind: "err", msg: "Please fill all fields" });
       return;
     }
@@ -258,11 +253,7 @@ export default function ChannelManager() {
 
     try {
       setStatus({ kind: "idle" });
-      const result = await depositToTreasury(
-        groupId,
-        adminCapId,
-        parseInt(treasuryAmount),
-      );
+      const result = await depositToTreasury(groupId, parseInt(treasuryAmount));
       setStatus({
         kind: "ok",
         msg: `Deposited to treasury! Transaction: ${result.digest}`,
@@ -276,7 +267,7 @@ export default function ChannelManager() {
   };
 
   const handleWithdrawFromTreasury = async () => {
-    if (!groupId.trim() || !adminCapId.trim() || !treasuryAmount.trim()) {
+    if (!groupId.trim() || !treasuryAmount.trim()) {
       setStatus({ kind: "err", msg: "Please fill all fields" });
       return;
     }
@@ -285,7 +276,6 @@ export default function ChannelManager() {
       setStatus({ kind: "idle" });
       const result = await withdrawFromTreasury(
         groupId,
-        adminCapId,
         parseInt(treasuryAmount),
       );
       setStatus({
@@ -297,37 +287,6 @@ export default function ChannelManager() {
         kind: "err",
         msg: `Error withdrawing: ${error.message}`,
       });
-    }
-  };
-
-  // Fetch treasury balance and user holdings
-  const handleFetchTreasuryInfo = async () => {
-    if (!groupId.trim()) {
-      setStatus({ kind: "err", msg: "Please provide a group ID" });
-      return;
-    }
-
-    try {
-      setIsLoadingTreasury(true);
-      setStatus({ kind: "idle" });
-
-      // Note: This would need to be implemented as a view function in the Move contract
-      // For now, we'll show a placeholder message
-      setStatus({
-        kind: "ok",
-        msg: "Treasury info fetched! (Note: View functions need to be implemented in the contract)",
-      });
-
-      // Placeholder values - in a real implementation, these would come from the contract
-      setTreasuryBalance(0);
-      setUserHoldings(0);
-    } catch (error: any) {
-      setStatus({
-        kind: "err",
-        msg: `Error fetching treasury info: ${error.message}`,
-      });
-    } finally {
-      setIsLoadingTreasury(false);
     }
   };
 
@@ -672,60 +631,13 @@ export default function ChannelManager() {
                 )}
 
                 {activeTab === "treasury" && (
-                  <div className="p-6 space-y-6">
+                  <div className="p-6">
                     <h3 className="text-xl font-semibold mb-4">
                       Treasury Management
                     </h3>
-
-                    {/* Treasury Balance Display */}
                     <Card>
                       <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <DollarSign className="h-5 w-5" />
-                          Treasury Balance
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="text-center p-4 bg-muted rounded-lg">
-                            <div className="text-2xl font-bold">
-                              {treasuryBalance !== null
-                                ? `${treasuryBalance} MIST`
-                                : "N/A"}
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              Total Balance
-                            </div>
-                          </div>
-                          <div className="text-center p-4 bg-muted rounded-lg">
-                            <div className="text-2xl font-bold">
-                              {userHoldings !== null
-                                ? `${userHoldings} MIST`
-                                : "N/A"}
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              Your Holdings
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            onClick={handleFetchTreasuryInfo}
-                            disabled={isLoadingTreasury}
-                            variant="outline"
-                          >
-                            {isLoadingTreasury
-                              ? "Loading..."
-                              : "Refresh Balance"}
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    {/* Treasury Operations */}
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Treasury Operations</CardTitle>
+                        <CardTitle>Group Treasury</CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-4">
                         <p className="text-sm text-muted-foreground mb-3">
@@ -742,6 +654,13 @@ export default function ChannelManager() {
                           </div>
                           <div>
                             <Input
+                              placeholder="Admin Cap ID"
+                              value={adminCapId}
+                              onChange={(e) => setAdminCapId(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <Input
                               placeholder="Amount (in MIST)"
                               value={treasuryAmount}
                               onChange={(e) =>
@@ -752,23 +671,14 @@ export default function ChannelManager() {
                           </div>
                         </div>
 
-                        <div className="flex gap-2 flex-wrap">
-                          <Button
-                            onClick={handleInitTreasury}
-                            variant="default"
-                          >
+                        <div className="flex gap-2">
+                          <Button onClick={handleInitTreasury}>
                             Initialize Treasury
                           </Button>
-                          <Button
-                            onClick={handleDepositToTreasury}
-                            variant="outline"
-                          >
+                          <Button onClick={handleDepositToTreasury}>
                             Deposit
                           </Button>
-                          <Button
-                            onClick={handleWithdrawFromTreasury}
-                            variant="outline"
-                          >
+                          <Button onClick={handleWithdrawFromTreasury}>
                             Withdraw
                           </Button>
                         </div>

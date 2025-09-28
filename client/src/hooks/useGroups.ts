@@ -8,7 +8,7 @@ import { Transaction } from "@mysten/sui/transactions";
 
 // Replace with your actual package ID after deployment
 const GROUPS_PACKAGE_ID =
-  "0x3a06f6786062fdf1f13711c33edec17fa299f0eb5b7ed43d3fcfb4ddac839805";
+  "0x1cb284f40afe2f5ca6fd5c7a2f07c027763c861d16e91fd3d149b20d33094f39";
 
 export const useGroups = () => {
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
@@ -125,7 +125,7 @@ export const useGroups = () => {
 
   // Deposit to treasury
   const depositToTreasury = useCallback(
-    async (groupId: string, adminCapId: string, amount: number) => {
+    async (groupId: string, amount: number) => {
       if (!currentAccount) throw new Error("No account connected");
 
       const tx = new Transaction();
@@ -135,7 +135,7 @@ export const useGroups = () => {
 
       tx.moveCall({
         target: `${GROUPS_PACKAGE_ID}::group::deposit_to_treasury`,
-        arguments: [tx.object(groupId), tx.object(adminCapId), coin],
+        arguments: [tx.object(groupId), coin],
       });
 
       const result = await signAndExecute({
@@ -149,43 +149,36 @@ export const useGroups = () => {
 
   // Withdraw from treasury
   const withdrawFromTreasury = useCallback(
-    async (groupId: string, adminCapId: string, amount: number) => {
+    async (groupId: string, amount: number) => {
+      console.log("🔍 WITHDRAW DEBUG - Function called with:");
+      console.log("🔍 - groupId:", groupId);
+      console.log("🔍 - amount:", amount);
+      console.log("🔍 - amount type:", typeof amount);
+
       if (!currentAccount) throw new Error("No account connected");
 
       const tx = new Transaction();
+
+      console.log("🔍 WITHDRAW DEBUG - Building transaction:");
+      console.log(
+        "🔍 - Target:",
+        `${GROUPS_PACKAGE_ID}::group::withdraw_from_treasury`,
+      );
+      console.log("🔍 - Arguments count:", 2);
+      console.log("🔍 - Argument 1 (groupId):", groupId);
+      console.log("🔍 - Argument 2 (amount):", amount);
+
       tx.moveCall({
         target: `${GROUPS_PACKAGE_ID}::group::withdraw_from_treasury`,
-        arguments: [
-          tx.object(groupId),
-          tx.object(adminCapId),
-          tx.pure.u64(amount),
-        ],
+        arguments: [tx.object(groupId), tx.pure.u64(amount)],
       });
 
+      console.log("🔍 WITHDRAW DEBUG - Transaction built, executing...");
       const result = await signAndExecute({
         transaction: tx,
       });
 
-      return result;
-    },
-    [signAndExecute, currentAccount],
-  );
-
-  // Get user holdings from treasury
-  const getUserHoldings = useCallback(
-    async (groupId: string, userAddress: string) => {
-      if (!currentAccount) throw new Error("No account connected");
-
-      const tx = new Transaction();
-      tx.moveCall({
-        target: `${GROUPS_PACKAGE_ID}::group::get_user_holdings`,
-        arguments: [tx.object(groupId), tx.pure.address(userAddress)],
-      });
-
-      const result = await signAndExecute({
-        transaction: tx,
-      });
-
+      console.log("🔍 WITHDRAW DEBUG - Transaction result:", result);
       return result;
     },
     [signAndExecute, currentAccount],
@@ -505,7 +498,6 @@ export const useGroups = () => {
     initTreasury,
     depositToTreasury,
     withdrawFromTreasury,
-    getUserHoldings,
     createSignal,
     upvoteSignal,
     downvoteSignal,

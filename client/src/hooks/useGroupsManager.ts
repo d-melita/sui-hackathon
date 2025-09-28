@@ -5,7 +5,7 @@ import { useMessaging } from "./useMessaging";
 
 // Replace with your actual package ID after deployment
 const GROUPS_PACKAGE_ID =
-  "0x3a06f6786062fdf1f13711c33edec17fa299f0eb5b7ed43d3fcfb4ddac839805";
+  "0x1cb284f40afe2f5ca6fd5c7a2f07c027763c861d16e91fd3d149b20d33094f39";
 
 export const useGroupsManager = () => {
   const currentAccount = useCurrentAccount();
