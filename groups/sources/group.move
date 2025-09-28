@@ -23,13 +23,13 @@ use groups::treasury;
 use groups::signal;
 use groups::voting;
 
-
 const ENotAllowed: u64 = 1;
 const ENotInGroup: u64 = 2;
 const EDuplicate: u64 = 3;
 const ENotOpenGroup: u64 = 4;
 const ETreasuryExists: u64 = 5;
 const ETreasuryNotExists: u64 = 6;
+const ENoAccess: u64 = 7;
 
 const VERSION: u64 = 1;
 
@@ -149,9 +149,8 @@ entry fun init_treasury(group: &mut Group, admin_cap: &AdminCap, initial: Coin<S
     group.treasury.fill(treasury);
 }
 
-entry fun deposit_to_treasury(group: &mut Group, admin_cap: &AdminCap, coin: Coin<SUI>, ctx: &TxContext) {
-    admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
-    assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
+entry fun deposit_to_treasury(group: &mut Group, coin: Coin<SUI>, ctx: &TxContext) {
+    assert!(group.members.contains(ctx.sender()), ENotInGroup);
 
     assert!(group.treasury.is_some(), ETreasuryNotExists); // check if treasury exists, if not error
 
@@ -160,9 +159,8 @@ entry fun deposit_to_treasury(group: &mut Group, admin_cap: &AdminCap, coin: Coi
     treasury.deposit(coin, ctx);
 }
 
-entry fun withdraw_from_treasury(group: &mut Group, admin_cap: &AdminCap, amount: u64, ctx: &mut TxContext) {
-    admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
-    assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
+entry fun withdraw_from_treasury(group: &mut Group, amount: u64, ctx: &mut TxContext) {
+    assert!(group.members.contains(ctx.sender()), ENotInGroup); 
 
     assert!(group.treasury.is_some(), ETreasuryNotExists); // check if treasury exists, if not error
 
@@ -413,4 +411,29 @@ public fun create_signal_for_test(group: &mut Group, admin_cap: &AdminCap, token
     });
     
     signal_id // Return the signal ID for testing
+}
+
+
+/// key format: [pkg id][whitelist id][random nonce]
+/// All whitelisted addresses can access all IDs with the prefix of the whitelist
+fun check_policy(caller: address, id: vector<u8>, group: &Group): bool {
+
+    // Check if the id has the right prefix
+    let prefix = group.id.to_bytes();
+    let mut i = 0;
+    if (prefix.length() > id.length()) {
+        return false
+    };
+    while (i < prefix.length()) {
+        if (prefix[i] != id[i]) {
+            return false
+        };
+        i = i + 1;
+    };
+
+    // Check if user is part of the members
+    group.members.contains(caller)
+}
+entry fun seal_approve(id: vector<u8>, wl: &Group, ctx: &TxContext) {
+    assert!(check_policy(ctx.sender(), id, wl), ENoAccess);
 }
