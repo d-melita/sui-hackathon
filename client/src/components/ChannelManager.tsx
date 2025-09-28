@@ -3,6 +3,7 @@ import { useCurrentAccount, useSuiClient } from "@mysten/dapp-kit";
 import { useMessaging } from "../hooks/useMessaging";
 import { useSessionKey } from "../providers/SessionKeyProvider";
 import { useMessagingClient } from "../providers/MessagingClientProvider";
+import { useGroups } from "../hooks/useGroups";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Input } from "./ui/input";
@@ -22,6 +23,15 @@ export default function ChannelManager() {
   const suiClient = useSuiClient();
   const messagingClient = useMessagingClient();
   const { sessionKey, initializeManually } = useSessionKey();
+  const {
+    createGroup: createGroupContract,
+    initTreasury,
+    depositToTreasury,
+    withdrawFromTreasury,
+    createSignal,
+    upvoteSignal,
+    downvoteSignal,
+  } = useGroups();
   const {
     channels,
     selectedChannelId,
@@ -50,6 +60,14 @@ export default function ChannelManager() {
   const [memberAddressesMap, setMemberAddressesMap] = useState<
     Map<string, string>
   >(new Map());
+
+  // Group management state
+  const [groupId, setGroupId] = useState("");
+  const [adminCapId, setAdminCapId] = useState("");
+  const [treasuryAmount, setTreasuryAmount] = useState("");
+  const [tokenAddress, setTokenAddress] = useState("");
+  const [confidence, setConfidence] = useState("");
+  const [signalId, setSignalId] = useState("");
 
   const self = currentAccount?.address ?? "";
 
@@ -145,11 +163,29 @@ export default function ChannelManager() {
 
     setStatus({ kind: "idle" });
     try {
-      const result = await createChannel("group", addresses);
-      if (result?.success) {
-        setStatus({ kind: "ok", msg: "Group channel created successfully!" });
-        setShowCreateGroup(false);
-        setMemberAddresses("");
+      // Step 1: Create the messaging channel
+      const channelResult = await createChannel("group", addresses);
+
+      if (channelResult?.success) {
+        // Step 2: Create the group contract (gated group for now)
+        try {
+          const groupResult = await createGroupContract(true); // true = gated group
+
+          setStatus({
+            kind: "ok",
+            msg: `Group created successfully! Channel: ${channelResult.channelId}, Group: ${groupResult.digest}`,
+          });
+          setShowCreateGroup(false);
+          setMemberAddresses("");
+        } catch (groupError) {
+          // Channel was created but group contract failed
+          setStatus({
+            kind: "ok",
+            msg: `Channel created but group contract failed: ${channelResult.channelId}`,
+          });
+          setShowCreateGroup(false);
+          setMemberAddresses("");
+        }
       } else {
         setStatus({ kind: "err", msg: "Failed to create group channel" });
       }
@@ -186,6 +222,156 @@ export default function ChannelManager() {
       setTimeout(() => {
         setStatus({ kind: "idle" });
       }, 5000);
+    }
+  };
+
+  // Group management functions
+  const handleInitTreasury = async () => {
+    if (!groupId.trim() || !adminCapId.trim() || !treasuryAmount.trim()) {
+      setStatus({ kind: "err", msg: "Please fill all fields" });
+      return;
+    }
+
+    try {
+      setStatus({ kind: "idle" });
+      const result = await initTreasury(
+        groupId,
+        adminCapId,
+        parseInt(treasuryAmount),
+      );
+      setStatus({
+        kind: "ok",
+        msg: `Treasury initialized! Transaction: ${result.digest}`,
+      });
+    } catch (error: any) {
+      setStatus({
+        kind: "err",
+        msg: `Error initializing treasury: ${error.message}`,
+      });
+    }
+  };
+
+  const handleDepositToTreasury = async () => {
+    if (!groupId.trim() || !adminCapId.trim() || !treasuryAmount.trim()) {
+      setStatus({ kind: "err", msg: "Please fill all fields" });
+      return;
+    }
+
+    try {
+      setStatus({ kind: "idle" });
+      const result = await depositToTreasury(
+        groupId,
+        adminCapId,
+        parseInt(treasuryAmount),
+      );
+      setStatus({
+        kind: "ok",
+        msg: `Deposited to treasury! Transaction: ${result.digest}`,
+      });
+    } catch (error: any) {
+      setStatus({
+        kind: "err",
+        msg: `Error depositing: ${error.message}`,
+      });
+    }
+  };
+
+  const handleWithdrawFromTreasury = async () => {
+    if (!groupId.trim() || !adminCapId.trim() || !treasuryAmount.trim()) {
+      setStatus({ kind: "err", msg: "Please fill all fields" });
+      return;
+    }
+
+    try {
+      setStatus({ kind: "idle" });
+      const result = await withdrawFromTreasury(
+        groupId,
+        adminCapId,
+        parseInt(treasuryAmount),
+      );
+      setStatus({
+        kind: "ok",
+        msg: `Withdrawn from treasury! Transaction: ${result.digest}`,
+      });
+    } catch (error: any) {
+      setStatus({
+        kind: "err",
+        msg: `Error withdrawing: ${error.message}`,
+      });
+    }
+  };
+
+  const handleCreateSignal = async (bullish: boolean) => {
+    if (
+      !groupId.trim() ||
+      !adminCapId.trim() ||
+      !tokenAddress.trim() ||
+      !confidence.trim()
+    ) {
+      setStatus({ kind: "err", msg: "Please fill all fields" });
+      return;
+    }
+
+    try {
+      setStatus({ kind: "idle" });
+      const result = await createSignal(
+        groupId,
+        adminCapId,
+        tokenAddress,
+        bullish,
+        parseInt(confidence),
+      );
+      setStatus({
+        kind: "ok",
+        msg: `${bullish ? "Bullish" : "Bearish"} signal created! Transaction: ${result.digest}`,
+      });
+    } catch (error: any) {
+      setStatus({
+        kind: "err",
+        msg: `Error creating signal: ${error.message}`,
+      });
+    }
+  };
+
+  const handleUpvoteSignal = async () => {
+    if (!groupId.trim() || !signalId.trim()) {
+      setStatus({ kind: "err", msg: "Please fill all fields" });
+      return;
+    }
+
+    try {
+      setStatus({ kind: "idle" });
+      const result = await upvoteSignal(groupId, signalId);
+      setStatus({
+        kind: "ok",
+        msg: `Signal upvoted! Transaction: ${result.digest}`,
+      });
+    } catch (error: any) {
+      setStatus({
+        kind: "err",
+        msg: `Error upvoting signal: ${error.message}`,
+      });
+    }
+  };
+
+  const handleDownvoteSignal = async () => {
+    if (!groupId.trim() || !signalId.trim()) {
+      setStatus({ kind: "err", msg: "Please fill all fields" });
+      return;
+    }
+
+    try {
+      setStatus({ kind: "idle" });
+      const result = await downvoteSignal(groupId, signalId);
+      setStatus({
+        kind: "ok",
+        msg: `Signal downvoted! Transaction: ${result.digest}`,
+      });
+    } catch (error: any) {
+      setStatus({
+        kind: "err",
+        msg: `Error downvoting signal: ${error.message}`,
+      });
     }
   };
 
@@ -464,19 +650,47 @@ export default function ChannelManager() {
                       <CardHeader>
                         <CardTitle>Group Treasury</CardTitle>
                       </CardHeader>
-                      <CardContent>
+                      <CardContent className="space-y-4">
                         <p className="text-sm text-muted-foreground mb-3">
                           Manage group funds, proposals, and financial decisions
                         </p>
+
+                        <div className="space-y-3">
+                          <div>
+                            <Input
+                              placeholder="Group ID"
+                              value={groupId}
+                              onChange={(e) => setGroupId(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <Input
+                              placeholder="Admin Cap ID"
+                              value={adminCapId}
+                              onChange={(e) => setAdminCapId(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <Input
+                              placeholder="Amount (in MIST)"
+                              value={treasuryAmount}
+                              onChange={(e) =>
+                                setTreasuryAmount(e.target.value)
+                              }
+                              type="number"
+                            />
+                          </div>
+                        </div>
+
                         <div className="flex gap-2">
-                          <Button variant="outline" disabled>
-                            View Balance
+                          <Button onClick={handleInitTreasury}>
+                            Initialize Treasury
                           </Button>
-                          <Button variant="outline" disabled>
-                            Create Proposal
+                          <Button onClick={handleDepositToTreasury}>
+                            Deposit
                           </Button>
-                          <Button variant="outline" disabled>
-                            Vote on Proposal
+                          <Button onClick={handleWithdrawFromTreasury}>
+                            Withdraw
                           </Button>
                         </div>
                       </CardContent>
@@ -492,40 +706,94 @@ export default function ChannelManager() {
                     <div className="space-y-4">
                       <Card>
                         <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <TrendingUp className="w-5 h-5 text-green-600" />
-                            Send Bullish Signal
-                          </CardTitle>
+                          <CardTitle>Create Signal</CardTitle>
                         </CardHeader>
-                        <CardContent>
-                          <p className="text-sm text-muted-foreground mb-3">
-                            Share your bullish market sentiment with the group
-                          </p>
-                          <Button
-                            className="bg-green-600 hover:bg-green-700"
-                            disabled
-                          >
-                            ↑ Send Bullish Signal
-                          </Button>
+                        <CardContent className="space-y-4">
+                          <div className="space-y-3">
+                            <div>
+                              <Input
+                                placeholder="Group ID"
+                                value={groupId}
+                                onChange={(e) => setGroupId(e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <Input
+                                placeholder="Admin Cap ID"
+                                value={adminCapId}
+                                onChange={(e) => setAdminCapId(e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <Input
+                                placeholder="Token Address"
+                                value={tokenAddress}
+                                onChange={(e) =>
+                                  setTokenAddress(e.target.value)
+                                }
+                              />
+                            </div>
+                            <div>
+                              <Input
+                                placeholder="Confidence (0-100)"
+                                value={confidence}
+                                onChange={(e) => setConfidence(e.target.value)}
+                                type="number"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              onClick={() => handleCreateSignal(true)}
+                              className="bg-green-600 hover:bg-green-700"
+                            >
+                              ↑ Create Bullish Signal
+                            </Button>
+                            <Button
+                              onClick={() => handleCreateSignal(false)}
+                              className="bg-red-600 hover:bg-red-700"
+                            >
+                              ↓ Create Bearish Signal
+                            </Button>
+                          </div>
                         </CardContent>
                       </Card>
+
                       <Card>
                         <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <TrendingDown className="w-5 h-5 text-red-600" />
-                            Send Bearish Signal
-                          </CardTitle>
+                          <CardTitle>Vote on Signals</CardTitle>
                         </CardHeader>
-                        <CardContent>
-                          <p className="text-sm text-muted-foreground mb-3">
-                            Share your bearish market sentiment with the group
-                          </p>
-                          <Button
-                            className="bg-red-600 hover:bg-red-700"
-                            disabled
-                          >
-                            ↓ Send Bearish Signal
-                          </Button>
+                        <CardContent className="space-y-4">
+                          <div className="space-y-3">
+                            <div>
+                              <Input
+                                placeholder="Group ID"
+                                value={groupId}
+                                onChange={(e) => setGroupId(e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <Input
+                                placeholder="Signal ID"
+                                value={signalId}
+                                onChange={(e) => setSignalId(e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              onClick={handleUpvoteSignal}
+                              className="bg-green-600 hover:bg-green-700"
+                            >
+                              ↑ Upvote Signal
+                            </Button>
+                            <Button
+                              onClick={handleDownvoteSignal}
+                              className="bg-red-600 hover:bg-red-700"
+                            >
+                              ↓ Downvote Signal
+                            </Button>
+                          </div>
                         </CardContent>
                       </Card>
                     </div>
