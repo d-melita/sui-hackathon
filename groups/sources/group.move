@@ -41,6 +41,7 @@ public struct Group has key {
     members: table::Table<address, member::Member>,
     treasury: Option<treasury::Treasury>, // Optional treasury for the group
     signals: table::Table<ID, signal::Signal>, // Signals sent to the group  
+    signal_ids: vector<ID>, // List of signal IDs for easy access
     current_polls: table::Table<ID, voting::Vote>, // Votes created in the group
     past_polls: table::Table<ID, voting::VoteResult>, // Past votes created in the group
 }
@@ -76,6 +77,7 @@ public fun new_group(
         members: table::new<address, member::Member>(ctx),
         treasury: option::none(),
         signals: table::new<ID, signal::Signal>(ctx),
+        signal_ids: vector::empty<ID>(),
         current_polls: table::new<ID, voting::Vote>(ctx),
         past_polls: table::new<ID, voting::VoteResult>(ctx),
     };
@@ -186,6 +188,7 @@ entry fun create_signal(group: &mut Group, admin_cap: &AdminCap, token_address: 
     let signal = signal::create_signal(token_address, bullish, confidence, ctx);
     let signal_id = object::id(&signal);
     group.signals.add(signal_id, signal);
+    vector::push_back(&mut group.signal_ids, signal_id);
     
     // Emit event for frontend integration
     event::emit(SignalCreated {
@@ -373,6 +376,37 @@ public fun contains_signal(group: &Group, signal_id: ID): bool {
 public fun get_signals_count(group: &Group): u64 {
     group.signals.length()
 }
+
+// Get all signal IDs from the group
+public fun get_all_signal_ids(group: &Group): vector<ID> {
+    group.signal_ids
+}
+
+// Get signal data by ID (for frontend access)
+public fun get_signal_data(group: &Group, signal_id: ID): (address, vector<u8>, bool, u8, u8) {
+    assert!(group.signals.contains(signal_id), ENotInGroup);
+    let signal = group.signals.borrow(signal_id);
+
+    // Clone &vector<u8> (ciphertext) into an owned vector<u8> for returning
+    let token_ref = signal::get_token_address(signal);
+    let mut token_owned = vector::empty<u8>();
+    let mut i = 0;
+    let len = vector::length(token_ref);
+    while (i < len) {
+        let b = *vector::borrow(token_ref, i);
+        vector::push_back(&mut token_owned, b);
+        i = i + 1;
+    };
+
+    (
+        signal::get_caller(signal),
+        token_owned,
+        signal::get_bullish(signal),
+        signal::get_confidence(signal),
+        signal::get_rating(signal)
+    )
+}
+
 
 // Getter functions for voting testing
 #[test_only] 
