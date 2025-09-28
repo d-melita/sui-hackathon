@@ -6,7 +6,7 @@ edition = "2024.beta" # edition = "legacy" to use legacy (pre-2024) Move
 
 [dependencies]
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.52.1" }
-seal = { git = "https://github.com/MystenLabs/seal.git", subdir = "move/seal", rev = "main" }
+seal = { local = "seal/move/seal" }
 
 
 # For remote import, use the `{ git = "...", subdir = "...", rev = "..." }`.
@@ -22,6 +22,8 @@ seal = { git = "https://github.com/MystenLabs/seal.git", subdir = "move/seal", r
 
 [addresses]
 groups = "0x0"
+
+
 
 # Named addresses will be accessible in Move as `@name`. They're also exported:
 # for example, `std = "0x1"` is exported by the Standard Library.
