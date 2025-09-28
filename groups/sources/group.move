@@ -163,6 +163,17 @@ public fun remove_member_by_address(
     member::delete_member(member);
 }
 
+public fun member_add_member(group: &mut Group, user_address: address, member_cap: &MemberCap, ctx: &mut TxContext) {
+    member_cap::assert_cap(member_cap, object::id(group)); // check if member cap is valid for the group
+    assert!(group.members.contains(ctx.sender()) && group.members.borrow(ctx.sender()).get_role() == 0, ENotAllowed); // check if holder of cap is a valid member - it might have left, been promoted, or promoted and removed
+
+    assert!(!group.members.contains(user_address), EDuplicate); // check if the user to add is already a member, if so error
+
+    let new_member_cap = member_cap::mint(object::id(group), ctx);
+    member_cap::member_transfer_to_recipient(new_member_cap, member_cap, user_address);
+    add_new_member(group, user_address, 0, ctx);
+}
+
 
 /*
 /// Emit a lightweight signal for bots/UIs.

@@ -34,6 +34,11 @@ public fun transfer_to_recipient(cap: MemberCap, admin_cap: &AdminCap, recipient
     transfer::transfer(cap, recipient)
 }
 
+public fun member_transfer_to_recipient(new_cap: MemberCap, member_cap: &MemberCap, recipient: address) {
+    assert!(new_cap.group_id == member_cap.group_id, ENotInGroup);
+    transfer::transfer(new_cap, recipient)
+}
+
 public fun transfer_to_sender(self: MemberCap, ctx: &TxContext) {
     transfer::transfer(self, ctx.sender());
 }
