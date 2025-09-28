@@ -235,12 +235,12 @@ entry fun cast_vote(
     vote.cast_vote(encrypted_ballot, ctx);
 }
 
-public fun finalize_vote(
+entry fun finalize_vote(
     group: &mut Group,
     admin_cap: &AdminCap,
     vote_id: ID,
-    derived_keys: &vector<vector<u8>>,
-    key_servers: &vector<address>,
+    derived_keys: vector<vector<u8>>,
+    key_servers: vector<address>,
     ctx: &TxContext,
 ) {
     admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
@@ -249,7 +249,7 @@ public fun finalize_vote(
     assert!(group.current_polls.contains(vote_id), ENotInGroup); // check if vote exists
     let mut vote = group.current_polls.remove(vote_id);
 
-    let result = vote.finalize_vote(derived_keys, key_servers);
+    let result = vote.finalize_vote(&derived_keys, &key_servers);
     group.past_polls.add(vote_id, result);
 
     vote.delete();
