@@ -1,5 +1,5 @@
 import { ConnectButton } from "@mysten/dapp-kit";
-import ChannelManager from "./components/ChannelManager";
+import GroupsManager from "./components/GroupsManager";
 import { SessionKeyProvider } from "./providers/SessionKeyProvider";
 import { MessagingClientProvider } from "./providers/MessagingClientProvider";
 
@@ -7,7 +7,7 @@ function App() {
   return (
     <SessionKeyProvider>
       <MessagingClientProvider>
-        <ChannelManager />
+        <GroupsManager />
       </MessagingClientProvider>
     </SessionKeyProvider>
   );

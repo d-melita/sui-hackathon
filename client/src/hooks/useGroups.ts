@@ -7,7 +7,8 @@ import { useCallback } from "react";
 import { Transaction } from "@mysten/sui/transactions";
 
 // Replace with your actual package ID after deployment
-const GROUPS_PACKAGE_ID = "0xYOUR_PACKAGE_ID_HERE";
+const GROUPS_PACKAGE_ID =
+  "0x3a06f6786062fdf1f13711c33edec17fa299f0eb5b7ed43d3fcfb4ddac839805";
 
 export const useGroups = () => {
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();

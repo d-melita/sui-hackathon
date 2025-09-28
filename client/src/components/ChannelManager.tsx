@@ -43,7 +43,6 @@ export default function ChannelManager() {
     fetchMessages,
     isSendingMessage,
     channelError,
-    setChannelError,
   } = useMessaging();
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -164,9 +163,9 @@ export default function ChannelManager() {
     setStatus({ kind: "idle" });
     try {
       // Step 1: Create the messaging channel
-      const channelResult = await createChannel("group", addresses);
+      const channelResult = await createChannel(addresses);
 
-      if (channelResult?.success) {
+      if (channelResult?.channelId) {
         // Step 2: Create the group contract (gated group for now)
         try {
           const groupResult = await createGroupContract(true); // true = gated group

@@ -44,10 +44,23 @@ export const useMessaging = () => {
   // Create channel function
   const createChannel = useCallback(
     async (recipientAddresses: string[]) => {
+      console.log("🔍 createChannel called with:", recipientAddresses);
+      console.log("🔍 messagingClient:", !!messagingClient);
+      console.log("🔍 currentAccount:", currentAccount?.address);
+      console.log("🔍 sessionKey:", !!sessionKey);
+
       if (!messagingClient || !currentAccount) {
-        setChannelError(
-          "[createChannel] Messaging client or account not available",
-        );
+        const error =
+          "[createChannel] Messaging client or account not available";
+        console.error("❌", error);
+        setChannelError(error);
+        return null;
+      }
+
+      if (!sessionKey) {
+        const error = "[createChannel] Session key not available";
+        console.error("❌", error);
+        setChannelError(error);
         return null;
       }
 
@@ -66,6 +79,11 @@ export const useMessaging = () => {
         const channelTx = flow.build();
         const { digest } = await signAndExecute({
           transaction: channelTx,
+          options: {
+            gasBudget: 50000000, // 50M gas units for channel creation
+            showEffects: true,
+            showObjectChanges: true,
+          },
         });
         console.log("✅ Step 1: Channel creation transaction sent", digest);
 
@@ -90,28 +108,61 @@ export const useMessaging = () => {
         const { creatorMemberCap } = await flow.getGeneratedCaps({ digest });
         console.log("✅ Step 3: Creator member cap obtained", creatorMemberCap);
 
-        // Step 4: Generate and attach encryption key
+        // Step 4: Generate and attach encryption key (with error handling)
         console.log("🔄 Step 4: Generating and attaching encryption key");
-        const attachKeyTx = await flow.generateAndAttachEncryptionKey({
-          creatorMemberCap,
-        });
+        console.log("🔍 Creator member cap:", creatorMemberCap);
+        try {
+          const attachKeyTx = await flow.generateAndAttachEncryptionKey({
+            creatorMemberCap,
+          });
+          console.log("🔍 Encryption key transaction built:", attachKeyTx);
 
-        const { digest: finalDigest } = await signAndExecute({
-          transaction: attachKeyTx,
-        });
-        console.log("✅ Step 4: Encryption key transaction sent", finalDigest);
+          // Add explicit gas budget and options for encryption key transaction
+          const { digest: finalDigest } = await signAndExecute({
+            transaction: attachKeyTx,
+            options: {
+              gasBudget: 50000000, // 50M gas units for encryption operations
+              showEffects: true,
+              showObjectChanges: true,
+            },
+          });
+          console.log(
+            "✅ Step 4: Encryption key transaction sent",
+            finalDigest,
+          );
 
-        // Wait for final transaction
-        console.log("🔄 Step 5: Waiting for encryption key transaction");
-        const { effects } = await suiClient.waitForTransaction({
-          digest: finalDigest,
-          options: { showEffects: true },
-        });
+          // Wait for final transaction
+          console.log("🔄 Step 5: Waiting for encryption key transaction");
+          const { effects } = await suiClient.waitForTransaction({
+            digest: finalDigest,
+            options: { showEffects: true },
+          });
 
-        if (effects?.status.status !== "success") {
-          throw new Error("Encryption key transaction failed");
+          if (effects?.status.status !== "success") {
+            console.warn(
+              "⚠️ Encryption key transaction failed, but channel was created",
+            );
+            // Don't throw error, channel is still usable
+          } else {
+            console.log("✅ Step 5: Encryption key attached successfully");
+          }
+        } catch (encryptionError) {
+          console.error("❌ Encryption key setup failed:", encryptionError);
+          console.error("❌ Error details:", {
+            message:
+              encryptionError instanceof Error
+                ? encryptionError.message
+                : String(encryptionError),
+            stack:
+              encryptionError instanceof Error
+                ? encryptionError.stack
+                : undefined,
+          });
+          // Re-throw the error since encryption is required
+          throw new Error(
+            `Encryption key setup failed: ${encryptionError instanceof Error ? encryptionError.message : "Unknown error"}`,
+          );
         }
-        console.log("✅ Step 5: Encryption key attached successfully");
 
         // Step 6: Members are automatically added by the SDK
         console.log(

@@ -1,0 +1,3 @@
+[submodule "groups/seal"]
+	path = groups/seal
+	url = https://github.com/MystenLabs/seal.git
