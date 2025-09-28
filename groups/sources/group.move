@@ -15,11 +15,14 @@ use sui::table;
 use groups::admin_cap::AdminCap;
 use groups::member_cap::MemberCap;
 use groups::owner_cap::OwnerCap;
+use groups::treasury;
 
 const ENotAllowed: u64 = 1;
 const ENotInGroup: u64 = 2;
 const EDuplicate: u64 = 3;
 const ENotOpenGroup: u64 = 4;
+const ETreasuryExists: u64 = 5;
+const ETreasuryNotExists: u64 = 6;
 
 const VERSION: u64 = 1;
 
@@ -29,6 +32,7 @@ public struct Group has key {
     version: u64,
     is_gated: bool,
     members: table::Table<address, member::Member>,
+    treasury: Option<Treasury::Treasury>, // Optional treasury for the group   
 }
 
 public struct GroupCreated has copy, drop, store { group_id: ID, owner: address }
@@ -109,6 +113,58 @@ public fun remove_member(group: &mut Group, admin_cap: &AdminCap, user_address: 
     assert!(group.members.contains(user_address), ENotInGroup);
     remove_member_by_address(group, user_address);
 }
+
+// TREASURY FUNCTIONS
+
+public fun init_treasury(group: &mut Group, admin_cap: &AdminCap, initial: Coin<SUI>, ctx: &mut TxContext) {
+    admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
+    assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
+
+    assert!(group.treasury.is_none(), ETreasuryExists); // check if treasury already exists, if so error
+
+    let treasury = treasury::create_treasury(initial, ctx);
+    group.treasury = Option::some(treasury);
+}
+
+public fun deposit_to_treasury(group: &mut Group, admin_cap: &AdminCap, coin: Coin<SUI>, ctx: &mut TxContext) {
+    admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
+    assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
+
+    assert!(group.treasury.is_some(), ETreasuryNotExists); // check if treasury exists, if not error
+
+
+    let treasury = group.treasury.borrow_mut();
+    treasury.deposit(treasury, coin, ctx);
+}
+
+public fun withdraw_from_treasury(group: &mut Group, admin_cap: &AdminCap, amount: u64, ctx: &mut TxContext) {
+    admin_cap::assert_cap(admin_cap, object::id(group)); // check if admin cap is valid for the group
+    assert!(group.members.contains(ctx.sender()) && (group.members.borrow(ctx.sender()).get_role() == 1 || group.members.borrow(ctx.sender()).get_role() == 2), ENotAllowed); // check if holder of cap is a valid admin/owner - it might have left, been demoted, or demoted and removed
+
+    assert!(group.treasury.is_some(), ETreasuryNotExists); // check if treasury exists, if not error
+
+    let treasury = group.treasury.borrow_mut();
+    treasury.withdraw(treasury, amount, ctx);
+}
+
+public fun get_user_holdings(group: &Group, user: address, ctx: &mut TxContext): u64 {
+    assert!(group.members.contains(user), ENotInGroup);
+    assert!(group.treasury.is_some(), ETreasuryNotExists);
+    assert!(group.members.contains(user), ENotAllowed);
+
+    let treasury = &mut treasury.holdings[user_address];
+    *user_balance = *user_balance + deposit_balance.value();
+
+    let treasury = group.treasury.borrow();
+    treasury.getUserHoldings(treasury, user);
+}
+
+
+
+
+
+
+// ADDITIONAL FUNCTIONS FOR ROLES MANAGEMENT
 
 /// Promote a member to an admin - Only the group owner can do this
 public fun promote_member_to_admin(group: &mut Group, owner_cap: &OwnerCap, user_address: address, ctx: &mut TxContext) {
